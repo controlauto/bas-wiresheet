@@ -2,7 +2,7 @@
   "domain": "bas_wiresheet",
   "name": "BAS Wire Sheet for TEMCO",
   "codeowners": [
-    "@OWNER"
+    "@controlauto"
   ],
   "config_flow": false,
   "dependencies": [
@@ -11,7 +11,7 @@
     "panel_custom",
     "websocket_api"
   ],
-  "documentation": "https://github.com/OWNER/bas-wiresheet",
+  "documentation": "https://github.com/controlauto/bas-wiresheet",
   "iot_class": "local_push",
   "requirements": [],
   "version": "0.9.0",
@@ -19,5 +19,5 @@
     "recorder",
     "bacnet"
   ],
-  "issue_tracker": "https://github.com/OWNER/bas-wiresheet/issues"
+  "issue_tracker": "https://github.com/controlauto/bas-wiresheet/issues"
 }
