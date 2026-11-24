@@ -1,0 +1,12 @@
+"""Constants for BAS Wire Sheet."""
+DOMAIN = "bas_wiresheet"
+PANEL_URL_PATH = "bas-wiresheet"
+PANEL_TITLE = "BAS Wire Sheet"
+PANEL_ICON = "mdi:sitemap-outline"
+STATIC_URL = "/bas_wiresheet_static"
+VERSION = "0.9.0"
+CONF_EDITORS = "editors"
+CONF_NODERED_TEST = "nodered_test"
+TARGET_TEST = "test"
+TARGET_PRODUCTION = "production"
+PREVIEW_TTL_S = 600

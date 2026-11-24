@@ -1,0 +1,224 @@
+{
+ "description": "Steady temperature from a source that only writes changes (sample_evidence=changes_only). Not the HX-1 case; shows that such a source cannot be proven Fresh once steady.",
+ "duration_s": 600,
+ "step_s": 5,
+ "entities": {
+  "sensor.hx_1_supply_temp": {
+   "write_mode": "on_change"
+  }
+ },
+ "events": [
+  {
+   "t": 0,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 15,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 30,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 45,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 60,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 75,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 90,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 105,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 120,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 135,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 150,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 165,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 180,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 195,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 210,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 225,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 240,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 255,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 270,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 285,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 300,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 315,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 330,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 345,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 360,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 375,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 390,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 405,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 420,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 435,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 450,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 465,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 480,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 495,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 510,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 525,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 540,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 555,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 570,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 585,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 600,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  }
+ ],
+ "name": "stable-temp-on-change",
+ "start": "2026-11-21T17:00:00Z",
+ "param_overrides": {
+  "in_supply_temp": {
+   "sample_evidence": "changes_only"
+  }
+ }
+}

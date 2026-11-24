@@ -1,0 +1,162 @@
+{
+ "description": "Generic countdown source with sample_evidence=value_changes_each_sample: Stale when polls stop; Freshness Unknown while resting at 0. On Delay confirms data loss after 30 s.",
+ "duration_s": 900,
+ "step_s": 5,
+ "entities": {
+  "sensor.hx_1_oat_watchdog": {
+   "write_mode": "on_change"
+  }
+ },
+ "events": [
+  {
+   "t": 0,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "300"
+  },
+  {
+   "t": 15,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "285"
+  },
+  {
+   "t": 30,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "270"
+  },
+  {
+   "t": 45,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "255"
+  },
+  {
+   "t": 60,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "240"
+  },
+  {
+   "t": 75,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "225"
+  },
+  {
+   "t": 90,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "210"
+  },
+  {
+   "t": 105,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "195"
+  },
+  {
+   "t": 120,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "180"
+  },
+  {
+   "t": 135,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "165"
+  },
+  {
+   "t": 150,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "150"
+  },
+  {
+   "t": 165,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "135"
+  },
+  {
+   "t": 180,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "120"
+  },
+  {
+   "t": 195,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "105"
+  },
+  {
+   "t": 500,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "300"
+  },
+  {
+   "t": 515,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "270"
+  },
+  {
+   "t": 530,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "240"
+  },
+  {
+   "t": 545,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "210"
+  },
+  {
+   "t": 560,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "180"
+  },
+  {
+   "t": 575,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "150"
+  },
+  {
+   "t": 590,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "120"
+  },
+  {
+   "t": 605,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "90"
+  },
+  {
+   "t": 620,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "60"
+  },
+  {
+   "t": 635,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "30"
+  },
+  {
+   "t": 650,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "0"
+  },
+  {
+   "t": 665,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "0"
+  },
+  {
+   "t": 680,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "0"
+  },
+  {
+   "t": 695,
+   "entity_id": "sensor.hx_1_oat_watchdog",
+   "sample": "0"
+  }
+ ],
+ "name": "heartbeat-countdown",
+ "start": "2026-11-21T17:00:00Z",
+ "param_overrides": {
+  "in_link": {
+   "sample_evidence": "value_changes_each_sample",
+   "rest_values": [
+    "0"
+   ]
+  }
+ }
+}

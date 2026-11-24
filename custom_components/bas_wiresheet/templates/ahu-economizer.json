@@ -1,0 +1,1083 @@
+{
+ "template": {
+  "id": "ahu-economizer",
+  "name": "AHU Economizer Monitoring",
+  "description": "OAT, RAT, MAT, SAT, OA damper command and supply fan status: data freshness, mixed air outside the OAT-RAT range by more than 2 °F for 300 s while the fan runs, OA damper open above 10 % with the fan off for 300 s, and SAT - MAT. Monitoring only.",
+  "inputs": [
+   {
+    "key": "oat",
+    "label": "Outdoor air temperature (°F)",
+    "value_type": "number"
+   },
+   {
+    "key": "rat",
+    "label": "Return air temperature (°F)",
+    "value_type": "number"
+   },
+   {
+    "key": "mat",
+    "label": "Mixed air temperature (°F)",
+    "value_type": "number"
+   },
+   {
+    "key": "sat",
+    "label": "Supply air temperature (°F)",
+    "value_type": "number"
+   },
+   {
+    "key": "damper",
+    "label": "OA damper command (%)",
+    "value_type": "number"
+   },
+   {
+    "key": "fan",
+    "label": "Supply fan status (on/off)",
+    "value_type": "boolean"
+   }
+  ]
+ },
+ "sheet": {
+  "schema": "bas-wiresheet/1",
+  "id": "",
+  "name": "",
+  "mode": "monitoring",
+  "description": "",
+  "equipment": [],
+  "blocks": [
+   {
+    "id": "in_oat",
+    "type": "entity_input",
+    "label": "Outdoor Air Temp",
+    "position": {
+     "x": 40,
+     "y": 0
+    },
+    "params": {
+     "entity_id": "{{oat}}",
+     "value_type": "number",
+     "unit": "°F",
+     "sample_evidence": "changes_only"
+    }
+   },
+   {
+    "id": "fr_oat",
+    "type": "data_freshness",
+    "label": "Outdoor Air Temp Freshness",
+    "position": {
+     "x": 330,
+     "y": 0
+    },
+    "params": {
+     "stale_after_s": 300,
+     "justification": "Template default: adjust to the point's poll interval."
+    }
+   },
+   {
+    "id": "ds_oat",
+    "type": "status_display",
+    "label": "Outdoor Air Temp Freshness",
+    "position": {
+     "x": 600,
+     "y": 0
+    },
+    "params": {
+     "label": "Outdoor Air Temp Freshness"
+    }
+   },
+   {
+    "id": "dv_oat",
+    "type": "status_display",
+    "label": "Outdoor Air Temp Value",
+    "position": {
+     "x": 600,
+     "y": 90
+    },
+    "params": {
+     "label": "Outdoor Air Temp Value"
+    }
+   },
+   {
+    "id": "in_rat",
+    "type": "entity_input",
+    "label": "Return Air Temp",
+    "position": {
+     "x": 40,
+     "y": 200
+    },
+    "params": {
+     "entity_id": "{{rat}}",
+     "value_type": "number",
+     "unit": "°F",
+     "sample_evidence": "changes_only"
+    }
+   },
+   {
+    "id": "fr_rat",
+    "type": "data_freshness",
+    "label": "Return Air Temp Freshness",
+    "position": {
+     "x": 330,
+     "y": 200
+    },
+    "params": {
+     "stale_after_s": 300,
+     "justification": "Template default: adjust to the point's poll interval."
+    }
+   },
+   {
+    "id": "ds_rat",
+    "type": "status_display",
+    "label": "Return Air Temp Freshness",
+    "position": {
+     "x": 600,
+     "y": 200
+    },
+    "params": {
+     "label": "Return Air Temp Freshness"
+    }
+   },
+   {
+    "id": "dv_rat",
+    "type": "status_display",
+    "label": "Return Air Temp Value",
+    "position": {
+     "x": 600,
+     "y": 290
+    },
+    "params": {
+     "label": "Return Air Temp Value"
+    }
+   },
+   {
+    "id": "in_mat",
+    "type": "entity_input",
+    "label": "Mixed Air Temp",
+    "position": {
+     "x": 40,
+     "y": 400
+    },
+    "params": {
+     "entity_id": "{{mat}}",
+     "value_type": "number",
+     "unit": "°F",
+     "sample_evidence": "changes_only"
+    }
+   },
+   {
+    "id": "fr_mat",
+    "type": "data_freshness",
+    "label": "Mixed Air Temp Freshness",
+    "position": {
+     "x": 330,
+     "y": 400
+    },
+    "params": {
+     "stale_after_s": 300,
+     "justification": "Template default: adjust to the point's poll interval."
+    }
+   },
+   {
+    "id": "ds_mat",
+    "type": "status_display",
+    "label": "Mixed Air Temp Freshness",
+    "position": {
+     "x": 600,
+     "y": 400
+    },
+    "params": {
+     "label": "Mixed Air Temp Freshness"
+    }
+   },
+   {
+    "id": "dv_mat",
+    "type": "status_display",
+    "label": "Mixed Air Temp Value",
+    "position": {
+     "x": 600,
+     "y": 490
+    },
+    "params": {
+     "label": "Mixed Air Temp Value"
+    }
+   },
+   {
+    "id": "in_sat",
+    "type": "entity_input",
+    "label": "Supply Air Temp",
+    "position": {
+     "x": 40,
+     "y": 600
+    },
+    "params": {
+     "entity_id": "{{sat}}",
+     "value_type": "number",
+     "unit": "°F",
+     "sample_evidence": "changes_only"
+    }
+   },
+   {
+    "id": "fr_sat",
+    "type": "data_freshness",
+    "label": "Supply Air Temp Freshness",
+    "position": {
+     "x": 330,
+     "y": 600
+    },
+    "params": {
+     "stale_after_s": 300,
+     "justification": "Template default: adjust to the point's poll interval."
+    }
+   },
+   {
+    "id": "ds_sat",
+    "type": "status_display",
+    "label": "Supply Air Temp Freshness",
+    "position": {
+     "x": 600,
+     "y": 600
+    },
+    "params": {
+     "label": "Supply Air Temp Freshness"
+    }
+   },
+   {
+    "id": "dv_sat",
+    "type": "status_display",
+    "label": "Supply Air Temp Value",
+    "position": {
+     "x": 600,
+     "y": 690
+    },
+    "params": {
+     "label": "Supply Air Temp Value"
+    }
+   },
+   {
+    "id": "in_damper",
+    "type": "entity_input",
+    "label": "OA Damper Command",
+    "position": {
+     "x": 40,
+     "y": 800
+    },
+    "params": {
+     "entity_id": "{{damper}}",
+     "value_type": "number",
+     "unit": "%",
+     "sample_evidence": "changes_only"
+    }
+   },
+   {
+    "id": "fr_damper",
+    "type": "data_freshness",
+    "label": "OA Damper Command Freshness",
+    "position": {
+     "x": 330,
+     "y": 800
+    },
+    "params": {
+     "stale_after_s": 300,
+     "justification": "Template default: adjust to the point's poll interval."
+    }
+   },
+   {
+    "id": "ds_damper",
+    "type": "status_display",
+    "label": "OA Damper Command Freshness",
+    "position": {
+     "x": 600,
+     "y": 800
+    },
+    "params": {
+     "label": "OA Damper Command Freshness"
+    }
+   },
+   {
+    "id": "dv_damper",
+    "type": "status_display",
+    "label": "OA Damper Command Value",
+    "position": {
+     "x": 600,
+     "y": 890
+    },
+    "params": {
+     "label": "OA Damper Command Value"
+    }
+   },
+   {
+    "id": "in_fan",
+    "type": "entity_input",
+    "label": "Supply Fan Status",
+    "position": {
+     "x": 40,
+     "y": 1000
+    },
+    "params": {
+     "entity_id": "{{fan}}",
+     "value_type": "boolean",
+     "unit": "",
+     "sample_evidence": "changes_only"
+    }
+   },
+   {
+    "id": "fr_fan",
+    "type": "data_freshness",
+    "label": "Supply Fan Status Freshness",
+    "position": {
+     "x": 330,
+     "y": 1000
+    },
+    "params": {
+     "stale_after_s": 300,
+     "justification": "Template default: adjust to the point's poll interval."
+    }
+   },
+   {
+    "id": "ds_fan",
+    "type": "status_display",
+    "label": "Supply Fan Status Freshness",
+    "position": {
+     "x": 600,
+     "y": 1000
+    },
+    "params": {
+     "label": "Supply Fan Status Freshness"
+    }
+   },
+   {
+    "id": "dv_fan",
+    "type": "status_display",
+    "label": "Supply Fan Status Value",
+    "position": {
+     "x": 600,
+     "y": 1090
+    },
+    "params": {
+     "label": "Supply Fan Status Value"
+    }
+   },
+   {
+    "id": "lo",
+    "type": "minimum",
+    "label": "Lower of OAT/RAT",
+    "position": {
+     "x": 900,
+     "y": 0
+    },
+    "params": {}
+   },
+   {
+    "id": "hi",
+    "type": "maximum",
+    "label": "Higher of OAT/RAT",
+    "position": {
+     "x": 900,
+     "y": 120
+    },
+    "params": {}
+   },
+   {
+    "id": "k2",
+    "type": "constant",
+    "label": "Tolerance",
+    "position": {
+     "x": 900,
+     "y": 240
+    },
+    "params": {
+     "value_type": "number",
+     "value": 2,
+     "unit": "°F"
+    }
+   },
+   {
+    "id": "lo2",
+    "type": "subtract",
+    "label": "Lower Limit",
+    "position": {
+     "x": 1150,
+     "y": 0
+    },
+    "params": {}
+   },
+   {
+    "id": "hi2",
+    "type": "add",
+    "label": "Upper Limit",
+    "position": {
+     "x": 1150,
+     "y": 120
+    },
+    "params": {}
+   },
+   {
+    "id": "c1",
+    "type": "compare",
+    "label": "MAT Below Range",
+    "position": {
+     "x": 1400,
+     "y": 0
+    },
+    "params": {
+     "op": "<"
+    }
+   },
+   {
+    "id": "c2",
+    "type": "compare",
+    "label": "MAT Above Range",
+    "position": {
+     "x": 1400,
+     "y": 120
+    },
+    "params": {
+     "op": ">"
+    }
+   },
+   {
+    "id": "out",
+    "type": "or",
+    "label": "MAT Out of Range",
+    "position": {
+     "x": 1650,
+     "y": 60
+    },
+    "params": {}
+   },
+   {
+    "id": "run",
+    "type": "and",
+    "label": "While Fan Runs",
+    "position": {
+     "x": 1900,
+     "y": 60
+    },
+    "params": {}
+   },
+   {
+    "id": "d1",
+    "type": "on_delay",
+    "label": "Confirmed 300 s",
+    "position": {
+     "x": 2150,
+     "y": 60
+    },
+    "params": {
+     "delay_s": 300
+    }
+   },
+   {
+    "id": "ds1",
+    "type": "status_display",
+    "label": "Mixed Air Out of Range",
+    "position": {
+     "x": 2400,
+     "y": 60
+    },
+    "params": {
+     "label": "Mixed Air Out of Range"
+    }
+   },
+   {
+    "id": "k10",
+    "type": "constant",
+    "label": "Damper Open Threshold",
+    "position": {
+     "x": 900,
+     "y": 1000
+    },
+    "params": {
+     "value_type": "number",
+     "value": 10,
+     "unit": "%"
+    }
+   },
+   {
+    "id": "dop",
+    "type": "compare",
+    "label": "Damper Open",
+    "position": {
+     "x": 1150,
+     "y": 950
+    },
+    "params": {
+     "op": ">"
+    }
+   },
+   {
+    "id": "nofan",
+    "type": "not",
+    "label": "Fan Off",
+    "position": {
+     "x": 1150,
+     "y": 1100
+    },
+    "params": {}
+   },
+   {
+    "id": "dbad",
+    "type": "and",
+    "label": "Damper Open, Fan Off",
+    "position": {
+     "x": 1400,
+     "y": 1000
+    },
+    "params": {}
+   },
+   {
+    "id": "d2",
+    "type": "on_delay",
+    "label": "Confirmed 300 s",
+    "position": {
+     "x": 1650,
+     "y": 1000
+    },
+    "params": {
+     "delay_s": 300
+    }
+   },
+   {
+    "id": "ds2",
+    "type": "status_display",
+    "label": "OA Damper Open With Fan Off",
+    "position": {
+     "x": 1900,
+     "y": 1000
+    },
+    "params": {
+     "label": "OA Damper Open With Fan Off"
+    }
+   },
+   {
+    "id": "dsat",
+    "type": "subtract",
+    "label": "SAT - MAT",
+    "position": {
+     "x": 900,
+     "y": 640
+    },
+    "params": {}
+   },
+   {
+    "id": "ds3",
+    "type": "status_display",
+    "label": "SAT - MAT",
+    "position": {
+     "x": 1150,
+     "y": 640
+    },
+    "params": {
+     "label": "SAT - MAT"
+    }
+   }
+  ],
+  "wires": [
+   {
+    "id": "w1",
+    "from": {
+     "block": "in_oat",
+     "port": "sample"
+    },
+    "to": {
+     "block": "fr_oat",
+     "port": "sample"
+    }
+   },
+   {
+    "id": "w2",
+    "from": {
+     "block": "fr_oat",
+     "port": "status"
+    },
+    "to": {
+     "block": "ds_oat",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w3",
+    "from": {
+     "block": "in_oat",
+     "port": "value"
+    },
+    "to": {
+     "block": "dv_oat",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w4",
+    "from": {
+     "block": "in_rat",
+     "port": "sample"
+    },
+    "to": {
+     "block": "fr_rat",
+     "port": "sample"
+    }
+   },
+   {
+    "id": "w5",
+    "from": {
+     "block": "fr_rat",
+     "port": "status"
+    },
+    "to": {
+     "block": "ds_rat",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w6",
+    "from": {
+     "block": "in_rat",
+     "port": "value"
+    },
+    "to": {
+     "block": "dv_rat",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w7",
+    "from": {
+     "block": "in_mat",
+     "port": "sample"
+    },
+    "to": {
+     "block": "fr_mat",
+     "port": "sample"
+    }
+   },
+   {
+    "id": "w8",
+    "from": {
+     "block": "fr_mat",
+     "port": "status"
+    },
+    "to": {
+     "block": "ds_mat",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w9",
+    "from": {
+     "block": "in_mat",
+     "port": "value"
+    },
+    "to": {
+     "block": "dv_mat",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w10",
+    "from": {
+     "block": "in_sat",
+     "port": "sample"
+    },
+    "to": {
+     "block": "fr_sat",
+     "port": "sample"
+    }
+   },
+   {
+    "id": "w11",
+    "from": {
+     "block": "fr_sat",
+     "port": "status"
+    },
+    "to": {
+     "block": "ds_sat",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w12",
+    "from": {
+     "block": "in_sat",
+     "port": "value"
+    },
+    "to": {
+     "block": "dv_sat",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w13",
+    "from": {
+     "block": "in_damper",
+     "port": "sample"
+    },
+    "to": {
+     "block": "fr_damper",
+     "port": "sample"
+    }
+   },
+   {
+    "id": "w14",
+    "from": {
+     "block": "fr_damper",
+     "port": "status"
+    },
+    "to": {
+     "block": "ds_damper",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w15",
+    "from": {
+     "block": "in_damper",
+     "port": "value"
+    },
+    "to": {
+     "block": "dv_damper",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w16",
+    "from": {
+     "block": "in_fan",
+     "port": "sample"
+    },
+    "to": {
+     "block": "fr_fan",
+     "port": "sample"
+    }
+   },
+   {
+    "id": "w17",
+    "from": {
+     "block": "fr_fan",
+     "port": "status"
+    },
+    "to": {
+     "block": "ds_fan",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w18",
+    "from": {
+     "block": "in_fan",
+     "port": "value"
+    },
+    "to": {
+     "block": "dv_fan",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w19",
+    "from": {
+     "block": "in_oat",
+     "port": "value"
+    },
+    "to": {
+     "block": "lo",
+     "port": "a"
+    }
+   },
+   {
+    "id": "w20",
+    "from": {
+     "block": "in_rat",
+     "port": "value"
+    },
+    "to": {
+     "block": "lo",
+     "port": "b"
+    }
+   },
+   {
+    "id": "w21",
+    "from": {
+     "block": "in_oat",
+     "port": "value"
+    },
+    "to": {
+     "block": "hi",
+     "port": "a"
+    }
+   },
+   {
+    "id": "w22",
+    "from": {
+     "block": "in_rat",
+     "port": "value"
+    },
+    "to": {
+     "block": "hi",
+     "port": "b"
+    }
+   },
+   {
+    "id": "w23",
+    "from": {
+     "block": "lo",
+     "port": "out"
+    },
+    "to": {
+     "block": "lo2",
+     "port": "a"
+    }
+   },
+   {
+    "id": "w24",
+    "from": {
+     "block": "k2",
+     "port": "value"
+    },
+    "to": {
+     "block": "lo2",
+     "port": "b"
+    }
+   },
+   {
+    "id": "w25",
+    "from": {
+     "block": "hi",
+     "port": "out"
+    },
+    "to": {
+     "block": "hi2",
+     "port": "a"
+    }
+   },
+   {
+    "id": "w26",
+    "from": {
+     "block": "k2",
+     "port": "value"
+    },
+    "to": {
+     "block": "hi2",
+     "port": "b"
+    }
+   },
+   {
+    "id": "w27",
+    "from": {
+     "block": "in_mat",
+     "port": "value"
+    },
+    "to": {
+     "block": "c1",
+     "port": "a"
+    }
+   },
+   {
+    "id": "w28",
+    "from": {
+     "block": "lo2",
+     "port": "out"
+    },
+    "to": {
+     "block": "c1",
+     "port": "b"
+    }
+   },
+   {
+    "id": "w29",
+    "from": {
+     "block": "in_mat",
+     "port": "value"
+    },
+    "to": {
+     "block": "c2",
+     "port": "a"
+    }
+   },
+   {
+    "id": "w30",
+    "from": {
+     "block": "hi2",
+     "port": "out"
+    },
+    "to": {
+     "block": "c2",
+     "port": "b"
+    }
+   },
+   {
+    "id": "w31",
+    "from": {
+     "block": "c1",
+     "port": "out"
+    },
+    "to": {
+     "block": "out",
+     "port": "a"
+    }
+   },
+   {
+    "id": "w32",
+    "from": {
+     "block": "c2",
+     "port": "out"
+    },
+    "to": {
+     "block": "out",
+     "port": "b"
+    }
+   },
+   {
+    "id": "w33",
+    "from": {
+     "block": "out",
+     "port": "out"
+    },
+    "to": {
+     "block": "run",
+     "port": "a"
+    }
+   },
+   {
+    "id": "w34",
+    "from": {
+     "block": "in_fan",
+     "port": "value"
+    },
+    "to": {
+     "block": "run",
+     "port": "b"
+    }
+   },
+   {
+    "id": "w35",
+    "from": {
+     "block": "run",
+     "port": "out"
+    },
+    "to": {
+     "block": "d1",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w36",
+    "from": {
+     "block": "d1",
+     "port": "out"
+    },
+    "to": {
+     "block": "ds1",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w37",
+    "from": {
+     "block": "in_damper",
+     "port": "value"
+    },
+    "to": {
+     "block": "dop",
+     "port": "a"
+    }
+   },
+   {
+    "id": "w38",
+    "from": {
+     "block": "k10",
+     "port": "value"
+    },
+    "to": {
+     "block": "dop",
+     "port": "b"
+    }
+   },
+   {
+    "id": "w39",
+    "from": {
+     "block": "in_fan",
+     "port": "value"
+    },
+    "to": {
+     "block": "nofan",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w40",
+    "from": {
+     "block": "dop",
+     "port": "out"
+    },
+    "to": {
+     "block": "dbad",
+     "port": "a"
+    }
+   },
+   {
+    "id": "w41",
+    "from": {
+     "block": "nofan",
+     "port": "out"
+    },
+    "to": {
+     "block": "dbad",
+     "port": "b"
+    }
+   },
+   {
+    "id": "w42",
+    "from": {
+     "block": "dbad",
+     "port": "out"
+    },
+    "to": {
+     "block": "d2",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w43",
+    "from": {
+     "block": "d2",
+     "port": "out"
+    },
+    "to": {
+     "block": "ds2",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w44",
+    "from": {
+     "block": "in_sat",
+     "port": "value"
+    },
+    "to": {
+     "block": "dsat",
+     "port": "a"
+    }
+   },
+   {
+    "id": "w45",
+    "from": {
+     "block": "in_mat",
+     "port": "value"
+    },
+    "to": {
+     "block": "dsat",
+     "port": "b"
+    }
+   },
+   {
+    "id": "w46",
+    "from": {
+     "block": "dsat",
+     "port": "out"
+    },
+    "to": {
+     "block": "ds3",
+     "port": "in"
+    }
+   }
+  ]
+ }
+}

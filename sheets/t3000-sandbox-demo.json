@@ -1,0 +1,167 @@
+{
+ "schema": "bas-wiresheet/1",
+ "id": "t3000-sandbox-demo",
+ "name": "T3000 Sandbox Demo",
+ "mode": "t3000",
+ "description": "Test program for the simulated controller 999001. Uses virtual sandbox variables only.",
+ "t3000": {
+  "device_instance": 999001,
+  "program_slot": 16,
+  "work_vars": [
+   "VAR125-128"
+  ]
+ },
+ "blocks": [
+  {
+   "id": "temp",
+   "type": "t3_read",
+   "position": {
+    "x": 40,
+    "y": 60
+   },
+   "params": {
+    "point": "VAR120",
+    "value_type": "number",
+    "unit": "degF"
+   }
+  },
+  {
+   "id": "limit",
+   "type": "constant",
+   "position": {
+    "x": 40,
+    "y": 200
+   },
+   "params": {
+    "value_type": "number",
+    "value": 50,
+    "unit": "degF"
+   }
+  },
+  {
+   "id": "high",
+   "type": "compare",
+   "position": {
+    "x": 300,
+    "y": 120
+   },
+   "params": {
+    "op": ">"
+   }
+  },
+  {
+   "id": "confirm",
+   "type": "on_delay",
+   "position": {
+    "x": 540,
+    "y": 60
+   },
+   "params": {
+    "delay_s": 30
+   }
+  },
+  {
+   "id": "hold",
+   "type": "off_delay",
+   "position": {
+    "x": 540,
+    "y": 220
+   },
+   "params": {
+    "delay_s": 10
+   }
+  },
+  {
+   "id": "out_confirm",
+   "type": "t3_write",
+   "position": {
+    "x": 800,
+    "y": 60
+   },
+   "params": {
+    "point": "VAR121",
+    "value_type": "boolean"
+   }
+  },
+  {
+   "id": "out_hold",
+   "type": "t3_write",
+   "position": {
+    "x": 800,
+    "y": 220
+   },
+   "params": {
+    "point": "VAR122",
+    "value_type": "boolean"
+   }
+  }
+ ],
+ "wires": [
+  {
+   "id": "w1",
+   "from": {
+    "block": "temp",
+    "port": "value"
+   },
+   "to": {
+    "block": "high",
+    "port": "a"
+   }
+  },
+  {
+   "id": "w2",
+   "from": {
+    "block": "limit",
+    "port": "value"
+   },
+   "to": {
+    "block": "high",
+    "port": "b"
+   }
+  },
+  {
+   "id": "w3",
+   "from": {
+    "block": "high",
+    "port": "out"
+   },
+   "to": {
+    "block": "confirm",
+    "port": "in"
+   }
+  },
+  {
+   "id": "w4",
+   "from": {
+    "block": "high",
+    "port": "out"
+   },
+   "to": {
+    "block": "hold",
+    "port": "in"
+   }
+  },
+  {
+   "id": "w5",
+   "from": {
+    "block": "confirm",
+    "port": "out"
+   },
+   "to": {
+    "block": "out_confirm",
+    "port": "in"
+   }
+  },
+  {
+   "id": "w6",
+   "from": {
+    "block": "hold",
+    "port": "out"
+   },
+   "to": {
+    "block": "out_hold",
+    "port": "in"
+   }
+  }
+ ]
+}

@@ -1,0 +1,39 @@
+{
+ "description": "Sensor reports -40 °F (open-circuit pattern, below Valid Min -39) then a non-numeric state, then a good value.",
+ "duration_s": 120,
+ "step_s": 5,
+ "entities": {
+  "sensor.hx_1_supply_temp": {
+   "write_mode": "every_sample"
+  }
+ },
+ "events": [
+  {
+   "t": 0,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 30,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "-40.0"
+  },
+  {
+   "t": 60,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "abc"
+  },
+  {
+   "t": 90,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.8"
+  }
+ ],
+ "name": "invalid-data",
+ "start": "2026-11-21T17:00:00Z",
+ "param_overrides": {
+  "in_supply_temp": {
+   "sample_evidence": "reports_every_sample"
+  }
+ }
+}

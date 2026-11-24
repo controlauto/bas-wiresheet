@@ -1,0 +1,586 @@
+{
+ "schema": "bas-wiresheet/1",
+ "id": "hx1-data-freshness",
+ "name": "HX-1 Data Freshness",
+ "mode": "monitoring",
+ "description": "Example: per-point data freshness for a heat exchanger read over Modbus TCP. Monitoring only; invalid or missing readings are data-quality states, never equipment alarms.",
+ "equipment": [
+  {
+   "tag": "HX-1",
+   "status": "Commissioning Pending",
+   "since": "2026-11-16",
+   "source": "site policy"
+  }
+ ],
+ "notes": {
+  "integration": "Home Assistant modbus (YAML, packages/hx1_modbus.yaml), hub hx1_t10, scan_interval 15 s.",
+  "timestamps": "HA modbus calls async_write_ha_state() on every scan, so State.last_reported advances on every new sample even when the value is unchanged. Verified on production 2026-11-21 13:05 EST via the HA template engine: sensor.hx_1_supply_temp unchanged since 2026-11-20 18:50 EST, last_reported 4.4 s old; the other points 3-14 s. The websocket/REST state views are cached and show last_reported == last_changed for steady values, and state_reported cannot be subscribed over websocket, so the runtime reads last_reported through a 5 s HA template poll. last_changed is never used for freshness.",
+  "heartbeat": "sensor.hx_1_oat_watchdog is a T10 countdown refreshed every minute by automation.hx_1_write_oat_to_t10 and read each scan; shown as the T10 link indicator."
+ },
+ "blocks": [
+  {
+   "id": "in_link",
+   "type": "entity_input",
+   "label": "T10 Link Heartbeat",
+   "position": {
+    "x": 40,
+    "y": 60
+   },
+   "params": {
+    "entity_id": "sensor.hx_1_oat_watchdog",
+    "value_type": "number",
+    "unit": "s",
+    "equipment": "HX-1",
+    "sample_evidence": "reports_every_sample"
+   }
+  },
+  {
+   "id": "fr_link",
+   "type": "data_freshness",
+   "label": "Link Freshness",
+   "position": {
+    "x": 360,
+    "y": 60
+   },
+   "params": {
+    "stale_after_s": 60,
+    "justification": "Example threshold: 4 missed polls at a 15 s scan interval."
+   }
+  },
+  {
+   "id": "ds_link",
+   "type": "status_display",
+   "label": "T10 Link",
+   "position": {
+    "x": 680,
+    "y": 60
+   },
+   "params": {
+    "label": "T10 Link Freshness"
+   }
+  },
+  {
+   "id": "not_link",
+   "type": "not",
+   "label": "Link Not Fresh",
+   "position": {
+    "x": 680,
+    "y": 170
+   },
+   "params": {}
+  },
+  {
+   "id": "dly_link",
+   "type": "on_delay",
+   "label": "Confirm 30 s",
+   "position": {
+    "x": 900,
+    "y": 170
+   },
+   "params": {
+    "delay_s": 30
+   }
+  },
+  {
+   "id": "ds_linklost",
+   "type": "status_display",
+   "label": "Link Data Lost",
+   "position": {
+    "x": 1120,
+    "y": 170
+   },
+   "params": {
+    "label": "T10 Data Lost (confirmed)"
+   }
+  },
+  {
+   "id": "in_supply_temp",
+   "type": "entity_input",
+   "label": "Supply Temp",
+   "position": {
+    "x": 40,
+    "y": 300
+   },
+   "params": {
+    "entity_id": "sensor.hx_1_supply_temp",
+    "value_type": "number",
+    "unit": "°F",
+    "equipment": "HX-1",
+    "sample_evidence": "reports_every_sample",
+    "valid_min": -39
+   }
+  },
+  {
+   "id": "fr_supply_temp",
+   "type": "data_freshness",
+   "label": "Supply Temp Freshness",
+   "position": {
+    "x": 360,
+    "y": 300
+   },
+   "params": {
+    "stale_after_s": 60,
+    "justification": "Example threshold: 4 missed polls at a 15 s scan interval."
+   }
+  },
+  {
+   "id": "ds_supply_temp_f",
+   "type": "status_display",
+   "label": "Supply Temp Freshness",
+   "position": {
+    "x": 680,
+    "y": 300
+   },
+   "params": {
+    "label": "Supply Temp Freshness"
+   }
+  },
+  {
+   "id": "ds_supply_temp_v",
+   "type": "status_display",
+   "label": "Supply Temp Value",
+   "position": {
+    "x": 680,
+    "y": 390
+   },
+   "params": {
+    "label": "Supply Temp Value"
+   }
+  },
+  {
+   "id": "in_return_temp",
+   "type": "entity_input",
+   "label": "Return Temp",
+   "position": {
+    "x": 40,
+    "y": 500
+   },
+   "params": {
+    "entity_id": "sensor.hx_1_return_temp",
+    "value_type": "number",
+    "unit": "°F",
+    "equipment": "HX-1",
+    "sample_evidence": "reports_every_sample",
+    "valid_min": -39
+   }
+  },
+  {
+   "id": "fr_return_temp",
+   "type": "data_freshness",
+   "label": "Return Temp Freshness",
+   "position": {
+    "x": 360,
+    "y": 500
+   },
+   "params": {
+    "stale_after_s": 60,
+    "justification": "Example threshold: 4 missed polls at a 15 s scan interval."
+   }
+  },
+  {
+   "id": "ds_return_temp_f",
+   "type": "status_display",
+   "label": "Return Temp Freshness",
+   "position": {
+    "x": 680,
+    "y": 500
+   },
+   "params": {
+    "label": "Return Temp Freshness"
+   }
+  },
+  {
+   "id": "ds_return_temp_v",
+   "type": "status_display",
+   "label": "Return Temp Value",
+   "position": {
+    "x": 680,
+    "y": 590
+   },
+   "params": {
+    "label": "Return Temp Value"
+   }
+  },
+  {
+   "id": "in_supply_press",
+   "type": "entity_input",
+   "label": "Supply Pressure",
+   "position": {
+    "x": 40,
+    "y": 700
+   },
+   "params": {
+    "entity_id": "sensor.hx_1_supply_pressure",
+    "value_type": "number",
+    "unit": "psi",
+    "equipment": "HX-1",
+    "sample_evidence": "reports_every_sample"
+   }
+  },
+  {
+   "id": "fr_supply_press",
+   "type": "data_freshness",
+   "label": "Supply Pressure Freshness",
+   "position": {
+    "x": 360,
+    "y": 700
+   },
+   "params": {
+    "stale_after_s": 60,
+    "justification": "Example threshold: 4 missed polls at a 15 s scan interval."
+   }
+  },
+  {
+   "id": "ds_supply_press_f",
+   "type": "status_display",
+   "label": "Supply Pressure Freshness",
+   "position": {
+    "x": 680,
+    "y": 700
+   },
+   "params": {
+    "label": "Supply Pressure Freshness"
+   }
+  },
+  {
+   "id": "ds_supply_press_v",
+   "type": "status_display",
+   "label": "Supply Pressure Value",
+   "position": {
+    "x": 680,
+    "y": 790
+   },
+   "params": {
+    "label": "Supply Pressure Value"
+   }
+  },
+  {
+   "id": "in_return_press",
+   "type": "entity_input",
+   "label": "Return Pressure",
+   "position": {
+    "x": 40,
+    "y": 900
+   },
+   "params": {
+    "entity_id": "sensor.hx_1_return_pressure",
+    "value_type": "number",
+    "unit": "psi",
+    "equipment": "HX-1",
+    "sample_evidence": "reports_every_sample"
+   }
+  },
+  {
+   "id": "fr_return_press",
+   "type": "data_freshness",
+   "label": "Return Pressure Freshness",
+   "position": {
+    "x": 360,
+    "y": 900
+   },
+   "params": {
+    "stale_after_s": 60,
+    "justification": "Example threshold: 4 missed polls at a 15 s scan interval."
+   }
+  },
+  {
+   "id": "ds_return_press_f",
+   "type": "status_display",
+   "label": "Return Pressure Freshness",
+   "position": {
+    "x": 680,
+    "y": 900
+   },
+   "params": {
+    "label": "Return Pressure Freshness"
+   }
+  },
+  {
+   "id": "ds_return_press_v",
+   "type": "status_display",
+   "label": "Return Pressure Value",
+   "position": {
+    "x": 680,
+    "y": 990
+   },
+   "params": {
+    "label": "Return Pressure Value"
+   }
+  },
+  {
+   "id": "in_diff_press",
+   "type": "entity_input",
+   "label": "Diff Pressure",
+   "position": {
+    "x": 40,
+    "y": 1100
+   },
+   "params": {
+    "entity_id": "sensor.hx_1_diff_pressure",
+    "value_type": "number",
+    "unit": "psi",
+    "equipment": "HX-1",
+    "sample_evidence": "reports_every_sample"
+   }
+  },
+  {
+   "id": "fr_diff_press",
+   "type": "data_freshness",
+   "label": "Diff Pressure Freshness",
+   "position": {
+    "x": 360,
+    "y": 1100
+   },
+   "params": {
+    "stale_after_s": 60,
+    "justification": "Example threshold: 4 missed polls at a 15 s scan interval."
+   }
+  },
+  {
+   "id": "ds_diff_press_f",
+   "type": "status_display",
+   "label": "Diff Pressure Freshness",
+   "position": {
+    "x": 680,
+    "y": 1100
+   },
+   "params": {
+    "label": "Diff Pressure Freshness"
+   }
+  },
+  {
+   "id": "ds_diff_press_v",
+   "type": "status_display",
+   "label": "Diff Pressure Value",
+   "position": {
+    "x": 680,
+    "y": 1190
+   },
+   "params": {
+    "label": "Diff Pressure Value"
+   }
+  }
+ ],
+ "wires": [
+  {
+   "id": "w_in_link_sample__fr_link_sample",
+   "from": {
+    "block": "in_link",
+    "port": "sample"
+   },
+   "to": {
+    "block": "fr_link",
+    "port": "sample"
+   }
+  },
+  {
+   "id": "w_fr_link_status__ds_link_in",
+   "from": {
+    "block": "fr_link",
+    "port": "status"
+   },
+   "to": {
+    "block": "ds_link",
+    "port": "in"
+   }
+  },
+  {
+   "id": "w_fr_link_fresh__not_link_in",
+   "from": {
+    "block": "fr_link",
+    "port": "fresh"
+   },
+   "to": {
+    "block": "not_link",
+    "port": "in"
+   }
+  },
+  {
+   "id": "w_not_link_out__dly_link_in",
+   "from": {
+    "block": "not_link",
+    "port": "out"
+   },
+   "to": {
+    "block": "dly_link",
+    "port": "in"
+   }
+  },
+  {
+   "id": "w_dly_link_out__ds_linklost_in",
+   "from": {
+    "block": "dly_link",
+    "port": "out"
+   },
+   "to": {
+    "block": "ds_linklost",
+    "port": "in"
+   }
+  },
+  {
+   "id": "w_in_supply_temp_sample__fr_supply_temp_sample",
+   "from": {
+    "block": "in_supply_temp",
+    "port": "sample"
+   },
+   "to": {
+    "block": "fr_supply_temp",
+    "port": "sample"
+   }
+  },
+  {
+   "id": "w_fr_supply_temp_status__ds_supply_temp_f_in",
+   "from": {
+    "block": "fr_supply_temp",
+    "port": "status"
+   },
+   "to": {
+    "block": "ds_supply_temp_f",
+    "port": "in"
+   }
+  },
+  {
+   "id": "w_in_supply_temp_value__ds_supply_temp_v_in",
+   "from": {
+    "block": "in_supply_temp",
+    "port": "value"
+   },
+   "to": {
+    "block": "ds_supply_temp_v",
+    "port": "in"
+   }
+  },
+  {
+   "id": "w_in_return_temp_sample__fr_return_temp_sample",
+   "from": {
+    "block": "in_return_temp",
+    "port": "sample"
+   },
+   "to": {
+    "block": "fr_return_temp",
+    "port": "sample"
+   }
+  },
+  {
+   "id": "w_fr_return_temp_status__ds_return_temp_f_in",
+   "from": {
+    "block": "fr_return_temp",
+    "port": "status"
+   },
+   "to": {
+    "block": "ds_return_temp_f",
+    "port": "in"
+   }
+  },
+  {
+   "id": "w_in_return_temp_value__ds_return_temp_v_in",
+   "from": {
+    "block": "in_return_temp",
+    "port": "value"
+   },
+   "to": {
+    "block": "ds_return_temp_v",
+    "port": "in"
+   }
+  },
+  {
+   "id": "w_in_supply_press_sample__fr_supply_press_sample",
+   "from": {
+    "block": "in_supply_press",
+    "port": "sample"
+   },
+   "to": {
+    "block": "fr_supply_press",
+    "port": "sample"
+   }
+  },
+  {
+   "id": "w_fr_supply_press_status__ds_supply_press_f_in",
+   "from": {
+    "block": "fr_supply_press",
+    "port": "status"
+   },
+   "to": {
+    "block": "ds_supply_press_f",
+    "port": "in"
+   }
+  },
+  {
+   "id": "w_in_supply_press_value__ds_supply_press_v_in",
+   "from": {
+    "block": "in_supply_press",
+    "port": "value"
+   },
+   "to": {
+    "block": "ds_supply_press_v",
+    "port": "in"
+   }
+  },
+  {
+   "id": "w_in_return_press_sample__fr_return_press_sample",
+   "from": {
+    "block": "in_return_press",
+    "port": "sample"
+   },
+   "to": {
+    "block": "fr_return_press",
+    "port": "sample"
+   }
+  },
+  {
+   "id": "w_fr_return_press_status__ds_return_press_f_in",
+   "from": {
+    "block": "fr_return_press",
+    "port": "status"
+   },
+   "to": {
+    "block": "ds_return_press_f",
+    "port": "in"
+   }
+  },
+  {
+   "id": "w_in_return_press_value__ds_return_press_v_in",
+   "from": {
+    "block": "in_return_press",
+    "port": "value"
+   },
+   "to": {
+    "block": "ds_return_press_v",
+    "port": "in"
+   }
+  },
+  {
+   "id": "w_in_diff_press_sample__fr_diff_press_sample",
+   "from": {
+    "block": "in_diff_press",
+    "port": "sample"
+   },
+   "to": {
+    "block": "fr_diff_press",
+    "port": "sample"
+   }
+  },
+  {
+   "id": "w_fr_diff_press_status__ds_diff_press_f_in",
+   "from": {
+    "block": "fr_diff_press",
+    "port": "status"
+   },
+   "to": {
+    "block": "ds_diff_press_f",
+    "port": "in"
+   }
+  },
+  {
+   "id": "w_in_diff_press_value__ds_diff_press_v_in",
+   "from": {
+    "block": "in_diff_press",
+    "port": "value"
+   },
+   "to": {
+    "block": "ds_diff_press_v",
+    "port": "in"
+   }
+  }
+ ]
+}

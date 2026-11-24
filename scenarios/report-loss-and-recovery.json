@@ -1,0 +1,134 @@
+{
+ "description": "Samples every 15 s until t=120 s, nothing until t=400 s, then samples resume. No events arrive during the gap.",
+ "duration_s": 600,
+ "step_s": 5,
+ "entities": {
+  "sensor.hx_1_supply_temp": {
+   "write_mode": "every_sample"
+  }
+ },
+ "events": [
+  {
+   "t": 0,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 15,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 30,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 45,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 60,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 75,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 90,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 105,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 120,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 400,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "73.1"
+  },
+  {
+   "t": 415,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "73.1"
+  },
+  {
+   "t": 430,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "73.1"
+  },
+  {
+   "t": 445,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "73.1"
+  },
+  {
+   "t": 460,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "73.1"
+  },
+  {
+   "t": 475,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "73.1"
+  },
+  {
+   "t": 490,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "73.1"
+  },
+  {
+   "t": 505,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "73.1"
+  },
+  {
+   "t": 520,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "73.1"
+  },
+  {
+   "t": 535,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "73.1"
+  },
+  {
+   "t": 550,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "73.1"
+  },
+  {
+   "t": 565,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "73.1"
+  },
+  {
+   "t": 580,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "73.1"
+  },
+  {
+   "t": 595,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "73.1"
+  }
+ ],
+ "name": "report-loss-and-recovery",
+ "start": "2026-11-21T17:00:00Z",
+ "param_overrides": {
+  "in_supply_temp": {
+   "sample_evidence": "reports_every_sample"
+  }
+ }
+}

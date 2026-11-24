@@ -1,0 +1,685 @@
+{
+ "template": {
+  "id": "hx-monitoring",
+  "name": "Heat Exchanger Monitoring",
+  "description": "Supply/return temperature, pump status and valve command: data freshness, delta T, high supply temperature (200/195 °F) and valve open without pump for 120 s. Monitoring only.",
+  "inputs": [
+   {
+    "key": "supply_temp",
+    "label": "Supply temperature (°F)",
+    "value_type": "number"
+   },
+   {
+    "key": "return_temp",
+    "label": "Return temperature (°F)",
+    "value_type": "number"
+   },
+   {
+    "key": "pump_status",
+    "label": "Pump status or proof (on/off)",
+    "value_type": "boolean"
+   },
+   {
+    "key": "valve_command",
+    "label": "Valve command (%)",
+    "value_type": "number"
+   }
+  ]
+ },
+ "sheet": {
+  "schema": "bas-wiresheet/1",
+  "id": "",
+  "name": "",
+  "mode": "monitoring",
+  "description": "",
+  "equipment": [],
+  "blocks": [
+   {
+    "id": "in_supply_temp",
+    "type": "entity_input",
+    "label": "Supply Temp",
+    "position": {
+     "x": 40,
+     "y": 0
+    },
+    "params": {
+     "entity_id": "{{supply_temp}}",
+     "value_type": "number",
+     "unit": "°F",
+     "sample_evidence": "changes_only"
+    }
+   },
+   {
+    "id": "fr_supply_temp",
+    "type": "data_freshness",
+    "label": "Supply Temp Freshness",
+    "position": {
+     "x": 330,
+     "y": 0
+    },
+    "params": {
+     "stale_after_s": 300,
+     "justification": "Template default: adjust to the point's poll interval."
+    }
+   },
+   {
+    "id": "ds_supply_temp",
+    "type": "status_display",
+    "label": "Supply Temp Freshness",
+    "position": {
+     "x": 600,
+     "y": 0
+    },
+    "params": {
+     "label": "Supply Temp Freshness"
+    }
+   },
+   {
+    "id": "dv_supply_temp",
+    "type": "status_display",
+    "label": "Supply Temp Value",
+    "position": {
+     "x": 600,
+     "y": 90
+    },
+    "params": {
+     "label": "Supply Temp Value"
+    }
+   },
+   {
+    "id": "in_return_temp",
+    "type": "entity_input",
+    "label": "Return Temp",
+    "position": {
+     "x": 40,
+     "y": 200
+    },
+    "params": {
+     "entity_id": "{{return_temp}}",
+     "value_type": "number",
+     "unit": "°F",
+     "sample_evidence": "changes_only"
+    }
+   },
+   {
+    "id": "fr_return_temp",
+    "type": "data_freshness",
+    "label": "Return Temp Freshness",
+    "position": {
+     "x": 330,
+     "y": 200
+    },
+    "params": {
+     "stale_after_s": 300,
+     "justification": "Template default: adjust to the point's poll interval."
+    }
+   },
+   {
+    "id": "ds_return_temp",
+    "type": "status_display",
+    "label": "Return Temp Freshness",
+    "position": {
+     "x": 600,
+     "y": 200
+    },
+    "params": {
+     "label": "Return Temp Freshness"
+    }
+   },
+   {
+    "id": "dv_return_temp",
+    "type": "status_display",
+    "label": "Return Temp Value",
+    "position": {
+     "x": 600,
+     "y": 290
+    },
+    "params": {
+     "label": "Return Temp Value"
+    }
+   },
+   {
+    "id": "in_pump_status",
+    "type": "entity_input",
+    "label": "Pump Status",
+    "position": {
+     "x": 40,
+     "y": 400
+    },
+    "params": {
+     "entity_id": "{{pump_status}}",
+     "value_type": "boolean",
+     "unit": "",
+     "sample_evidence": "changes_only"
+    }
+   },
+   {
+    "id": "fr_pump_status",
+    "type": "data_freshness",
+    "label": "Pump Status Freshness",
+    "position": {
+     "x": 330,
+     "y": 400
+    },
+    "params": {
+     "stale_after_s": 300,
+     "justification": "Template default: adjust to the point's poll interval."
+    }
+   },
+   {
+    "id": "ds_pump_status",
+    "type": "status_display",
+    "label": "Pump Status Freshness",
+    "position": {
+     "x": 600,
+     "y": 400
+    },
+    "params": {
+     "label": "Pump Status Freshness"
+    }
+   },
+   {
+    "id": "dv_pump_status",
+    "type": "status_display",
+    "label": "Pump Status Value",
+    "position": {
+     "x": 600,
+     "y": 490
+    },
+    "params": {
+     "label": "Pump Status Value"
+    }
+   },
+   {
+    "id": "in_valve_command",
+    "type": "entity_input",
+    "label": "Valve Command",
+    "position": {
+     "x": 40,
+     "y": 600
+    },
+    "params": {
+     "entity_id": "{{valve_command}}",
+     "value_type": "number",
+     "unit": "%",
+     "sample_evidence": "changes_only"
+    }
+   },
+   {
+    "id": "fr_valve_command",
+    "type": "data_freshness",
+    "label": "Valve Command Freshness",
+    "position": {
+     "x": 330,
+     "y": 600
+    },
+    "params": {
+     "stale_after_s": 300,
+     "justification": "Template default: adjust to the point's poll interval."
+    }
+   },
+   {
+    "id": "ds_valve_command",
+    "type": "status_display",
+    "label": "Valve Command Freshness",
+    "position": {
+     "x": 600,
+     "y": 600
+    },
+    "params": {
+     "label": "Valve Command Freshness"
+    }
+   },
+   {
+    "id": "dv_valve_command",
+    "type": "status_display",
+    "label": "Valve Command Value",
+    "position": {
+     "x": 600,
+     "y": 690
+    },
+    "params": {
+     "label": "Valve Command Value"
+    }
+   },
+   {
+    "id": "dt",
+    "type": "subtract",
+    "label": "Delta T",
+    "position": {
+     "x": 900,
+     "y": 80
+    },
+    "params": {}
+   },
+   {
+    "id": "ds_dt",
+    "type": "status_display",
+    "label": "Delta T",
+    "position": {
+     "x": 1150,
+     "y": 80
+    },
+    "params": {
+     "label": "Delta T"
+    }
+   },
+   {
+    "id": "hi",
+    "type": "hysteresis",
+    "label": "High Supply Temp",
+    "position": {
+     "x": 900,
+     "y": 0
+    },
+    "params": {
+     "on_above": 200,
+     "off_below": 195
+    }
+   },
+   {
+    "id": "ds_hi",
+    "type": "status_display",
+    "label": "High Supply Temp",
+    "position": {
+     "x": 1150,
+     "y": 0
+    },
+    "params": {
+     "label": "High Supply Temp"
+    }
+   },
+   {
+    "id": "k5",
+    "type": "constant",
+    "label": "Valve Open Threshold",
+    "position": {
+     "x": 900,
+     "y": 700
+    },
+    "params": {
+     "value_type": "number",
+     "value": 5,
+     "unit": "%"
+    }
+   },
+   {
+    "id": "vopen",
+    "type": "compare",
+    "label": "Valve Open",
+    "position": {
+     "x": 1150,
+     "y": 620
+    },
+    "params": {
+     "op": ">"
+    }
+   },
+   {
+    "id": "nopump",
+    "type": "not",
+    "label": "Pump Off",
+    "position": {
+     "x": 1150,
+     "y": 420
+    },
+    "params": {}
+   },
+   {
+    "id": "bad",
+    "type": "and",
+    "label": "Valve Open, Pump Off",
+    "position": {
+     "x": 1400,
+     "y": 500
+    },
+    "params": {}
+   },
+   {
+    "id": "dly",
+    "type": "on_delay",
+    "label": "Confirmed 120 s",
+    "position": {
+     "x": 1650,
+     "y": 500
+    },
+    "params": {
+     "delay_s": 120
+    }
+   },
+   {
+    "id": "ds_bad",
+    "type": "status_display",
+    "label": "Valve Open Without Pump",
+    "position": {
+     "x": 1900,
+     "y": 500
+    },
+    "params": {
+     "label": "Valve Open Without Pump"
+    }
+   },
+   {
+    "id": "act",
+    "type": "and",
+    "label": "Heating Active",
+    "position": {
+     "x": 1400,
+     "y": 300
+    },
+    "params": {}
+   },
+   {
+    "id": "ds_act",
+    "type": "status_display",
+    "label": "Heating Active",
+    "position": {
+     "x": 1650,
+     "y": 300
+    },
+    "params": {
+     "label": "Heating Active"
+    }
+   }
+  ],
+  "wires": [
+   {
+    "id": "w1",
+    "from": {
+     "block": "in_supply_temp",
+     "port": "sample"
+    },
+    "to": {
+     "block": "fr_supply_temp",
+     "port": "sample"
+    }
+   },
+   {
+    "id": "w2",
+    "from": {
+     "block": "fr_supply_temp",
+     "port": "status"
+    },
+    "to": {
+     "block": "ds_supply_temp",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w3",
+    "from": {
+     "block": "in_supply_temp",
+     "port": "value"
+    },
+    "to": {
+     "block": "dv_supply_temp",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w4",
+    "from": {
+     "block": "in_return_temp",
+     "port": "sample"
+    },
+    "to": {
+     "block": "fr_return_temp",
+     "port": "sample"
+    }
+   },
+   {
+    "id": "w5",
+    "from": {
+     "block": "fr_return_temp",
+     "port": "status"
+    },
+    "to": {
+     "block": "ds_return_temp",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w6",
+    "from": {
+     "block": "in_return_temp",
+     "port": "value"
+    },
+    "to": {
+     "block": "dv_return_temp",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w7",
+    "from": {
+     "block": "in_pump_status",
+     "port": "sample"
+    },
+    "to": {
+     "block": "fr_pump_status",
+     "port": "sample"
+    }
+   },
+   {
+    "id": "w8",
+    "from": {
+     "block": "fr_pump_status",
+     "port": "status"
+    },
+    "to": {
+     "block": "ds_pump_status",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w9",
+    "from": {
+     "block": "in_pump_status",
+     "port": "value"
+    },
+    "to": {
+     "block": "dv_pump_status",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w10",
+    "from": {
+     "block": "in_valve_command",
+     "port": "sample"
+    },
+    "to": {
+     "block": "fr_valve_command",
+     "port": "sample"
+    }
+   },
+   {
+    "id": "w11",
+    "from": {
+     "block": "fr_valve_command",
+     "port": "status"
+    },
+    "to": {
+     "block": "ds_valve_command",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w12",
+    "from": {
+     "block": "in_valve_command",
+     "port": "value"
+    },
+    "to": {
+     "block": "dv_valve_command",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w13",
+    "from": {
+     "block": "in_supply_temp",
+     "port": "value"
+    },
+    "to": {
+     "block": "dt",
+     "port": "a"
+    }
+   },
+   {
+    "id": "w14",
+    "from": {
+     "block": "in_return_temp",
+     "port": "value"
+    },
+    "to": {
+     "block": "dt",
+     "port": "b"
+    }
+   },
+   {
+    "id": "w15",
+    "from": {
+     "block": "dt",
+     "port": "out"
+    },
+    "to": {
+     "block": "ds_dt",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w16",
+    "from": {
+     "block": "in_supply_temp",
+     "port": "value"
+    },
+    "to": {
+     "block": "hi",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w17",
+    "from": {
+     "block": "hi",
+     "port": "out"
+    },
+    "to": {
+     "block": "ds_hi",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w18",
+    "from": {
+     "block": "in_valve_command",
+     "port": "value"
+    },
+    "to": {
+     "block": "vopen",
+     "port": "a"
+    }
+   },
+   {
+    "id": "w19",
+    "from": {
+     "block": "k5",
+     "port": "value"
+    },
+    "to": {
+     "block": "vopen",
+     "port": "b"
+    }
+   },
+   {
+    "id": "w20",
+    "from": {
+     "block": "in_pump_status",
+     "port": "value"
+    },
+    "to": {
+     "block": "nopump",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w21",
+    "from": {
+     "block": "vopen",
+     "port": "out"
+    },
+    "to": {
+     "block": "bad",
+     "port": "a"
+    }
+   },
+   {
+    "id": "w22",
+    "from": {
+     "block": "nopump",
+     "port": "out"
+    },
+    "to": {
+     "block": "bad",
+     "port": "b"
+    }
+   },
+   {
+    "id": "w23",
+    "from": {
+     "block": "bad",
+     "port": "out"
+    },
+    "to": {
+     "block": "dly",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w24",
+    "from": {
+     "block": "dly",
+     "port": "out"
+    },
+    "to": {
+     "block": "ds_bad",
+     "port": "in"
+    }
+   },
+   {
+    "id": "w25",
+    "from": {
+     "block": "vopen",
+     "port": "out"
+    },
+    "to": {
+     "block": "act",
+     "port": "a"
+    }
+   },
+   {
+    "id": "w26",
+    "from": {
+     "block": "in_pump_status",
+     "port": "value"
+    },
+    "to": {
+     "block": "act",
+     "port": "b"
+    }
+   },
+   {
+    "id": "w27",
+    "from": {
+     "block": "act",
+     "port": "out"
+    },
+    "to": {
+     "block": "ds_act",
+     "port": "in"
+    }
+   }
+  ]
+ }
+}

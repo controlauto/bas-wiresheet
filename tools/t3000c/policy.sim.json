@@ -1,0 +1,1 @@
+{"devices": {"999001": {"model": "T3-LB", "locked": ["OUT1-10", "IN1-16"], "sandbox": ["VAR120-128", "OUT60-64"]}}, "allowed_program_slots": [16]}

@@ -1,0 +1,79 @@
+{
+ "description": "Source goes unavailable at t=60 s and recovers at t=150 s.",
+ "duration_s": 240,
+ "step_s": 5,
+ "entities": {
+  "sensor.hx_1_supply_temp": {
+   "write_mode": "every_sample"
+  }
+ },
+ "events": [
+  {
+   "t": 0,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 15,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 30,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 45,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 60,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "unavailable": true
+  },
+  {
+   "t": 150,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 165,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 180,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 195,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 210,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 225,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  },
+  {
+   "t": 240,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.9"
+  }
+ ],
+ "name": "source-unavailable",
+ "start": "2026-11-21T17:00:00Z",
+ "param_overrides": {
+  "in_supply_temp": {
+   "sample_evidence": "reports_every_sample"
+  }
+ }
+}

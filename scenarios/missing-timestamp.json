@@ -1,0 +1,89 @@
+{
+ "description": "Samples keep arriving and the value changes, but last_reported is missing from t=60 s. last_changed is present and must NOT be used.",
+ "duration_s": 240,
+ "step_s": 5,
+ "entities": {
+  "sensor.hx_1_supply_temp": {
+   "write_mode": "every_sample"
+  }
+ },
+ "events": [
+  {
+   "t": 0,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.0"
+  },
+  {
+   "t": 60,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "timestamps": "missing"
+  },
+  {
+   "t": 75,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.75"
+  },
+  {
+   "t": 90,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "72.90"
+  },
+  {
+   "t": 105,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "73.05"
+  },
+  {
+   "t": 120,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "73.20"
+  },
+  {
+   "t": 135,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "73.35"
+  },
+  {
+   "t": 150,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "73.50"
+  },
+  {
+   "t": 165,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "73.65"
+  },
+  {
+   "t": 180,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "73.80"
+  },
+  {
+   "t": 195,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "73.95"
+  },
+  {
+   "t": 210,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "74.10"
+  },
+  {
+   "t": 225,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "74.25"
+  },
+  {
+   "t": 240,
+   "entity_id": "sensor.hx_1_supply_temp",
+   "sample": "74.40"
+  }
+ ],
+ "name": "missing-timestamp",
+ "start": "2026-11-21T17:00:00Z",
+ "param_overrides": {
+  "in_supply_temp": {
+   "sample_evidence": "reports_every_sample"
+  }
+ }
+}
