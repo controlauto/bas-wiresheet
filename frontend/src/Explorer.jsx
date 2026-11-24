@@ -371,7 +371,7 @@ export default function Explorer({ hass, role, onOpenSheet }) {
           </div>
         )}
         <div className="muted small pad">
-          {canWrite ? (fullAccess ? "Full access: every point can be written, one value at a time with typed confirmation, except safety points and Commissioning Pending equipment (Locked)." : "Only Test Sandbox points on virtual ports can be written, one value at a time with typed confirmation; everything else is read only.") : "Read only: no BACnet request is sent from this page."} Values are the states the BACnet/IP integration keeps in Home Assistant. Freshness uses each point's last report (the integration writes every point on every poll); the header shows the device's last successful poll.
+          {canWrite ? (fullAccess ? "Full access: every point can be written and configured, one change at a time with typed confirmation, except points marked Locked." : "Only Test Sandbox points on virtual ports can be written, one value at a time with typed confirmation; everything else is read only.") : "Read only: no BACnet request is sent from this page."} Values are the states the BACnet/IP integration keeps in Home Assistant. Freshness uses each point's last report (the integration writes every point on every poll); the header shows the device's last successful poll.
           Port types follow T3000 (GetOutputType). Locked points can never be written; Test Sandbox points are the approved test points for the write phase.
         </div>
       </section>
