@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { fmtAge, fmtTime, FRESH_CLASS } from "./model.js";
+import { Schedules, PidLoops } from "./ExplorerTables.jsx";
 
 const TABS = [
   { id: "IN", label: "Inputs" },
   { id: "OUT", label: "Outputs" },
   { id: "VAR", label: "Variables" },
+  { id: "SCH", label: "Schedules" },
+  { id: "PID", label: "PID Loops" },
   { id: "PRG", label: "Programs" },
 ];
 const PORT_LABEL = {
@@ -337,7 +340,10 @@ export default function Explorer({ hass, role, onOpenSheet }) {
           <input className="xp-filter" placeholder="Filter by number, label or entity" value={filter} onChange={(e) => setFilter(e.target.value)} />
         </div>
         {err && <div className="notel pad">{err}</div>}
-        {discover ? <Discovery ws={ws} onClose={() => setDiscover(false)} /> : tab === "PRG" ? (
+        {discover ? <Discovery ws={ws} onClose={() => setDiscover(false)} />
+          : tab === "SCH" && selDev ? (selDev.programs && selDev.programs.read ? <Schedules ws={ws} device={selDev} canWrite={canWrite && fullAccess} /> : <div className="muted pad">Reading from this controller is not enabled.</div>)
+          : tab === "PID" && selDev ? (selDev.programs && selDev.programs.read ? <PidLoops ws={ws} device={selDev} canWrite={canWrite && fullAccess} /> : <div className="muted pad">Reading from this controller is not enabled.</div>)
+          : tab === "PRG" ? (
           <Programs ws={ws} role={role} onOpenSheet={onOpenSheet} device={(devices || []).find((d) => d.device_id === sel)} />
         ) : (
           <div className="xp-tablewrap">

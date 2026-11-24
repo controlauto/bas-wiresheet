@@ -17,6 +17,9 @@ and TEMCO controllers on **BACnet MS/TP** behind a BACnet router are supported.
   update the running program (typed confirmation), restore the previous version, start, stop and remove.
 - **Program Watch**: every night (and on request) all programs are read and stored (last 20 versions); a change made
   outside the panel (for example in T3000) is recorded with the listing difference and raised as a notification.
+- **Schedules**: weekly routines (Monday to Sunday plus two holiday days, 4 ON/OFF pairs per day, with a timeline) and
+  annual routines (holiday calendar), edited on the controller and read back.
+- **PID loops**: the 16 T3000 PID controllers (input, setpoint, output, P, I, D, bias, action, auto/manual) with tuning.
 - **Export**: programs as T3000 program-editor text files (`PRGnn.txt`, *Load File* in T3000) plus exact byte code.
 - **Discovery**: Who-Is through the BACnet/IP integration; TEMCO controllers on BACnet/IP and MS/TP.
 

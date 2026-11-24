@@ -30,7 +30,10 @@ class SimController:
         self.corrupt_write_once = False             # store one wrong byte once
         self.runtime_state = False
         # point tables: OUT (cmd 1, 45 bytes), IN (cmd 2, 46 bytes), VAR (cmd 3, 39 bytes)
-        self.tables = {1: [bytearray(45) for _ in range(64)], 2: [bytearray(46) for _ in range(64)], 3: [bytearray(39) for _ in range(128)]}
+        self.tables = {1: [bytearray(45) for _ in range(64)], 2: [bytearray(46) for _ in range(64)], 3: [bytearray(39) for _ in range(128)],
+                       4: [bytearray(28) for _ in range(16)], 5: [bytearray(42) for _ in range(8)], 6: [bytearray(33) for _ in range(4)],
+                       17: [bytearray(144) for _ in range(8)], 18: [bytearray(46) for _ in range(4)], 41: [bytearray([255] * 72) for _ in range(8)]}
+        self.no_flags = False                       # emulate firmware without the schedule flag table
         self.table_writes = []                  # like real firmware: a running program changes its timer bytes and error byte
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("127.0.0.1", port))
@@ -108,7 +111,7 @@ class SimController:
         data = tb.parse_private(body)
         total, command, start, end, entity = tb.HEADER.unpack(data[:7])
         ack = lambda payload: bytes([0x30, invoke, service]) + tb.private_params(payload)
-        if command in (1, 2, 3, 101, 102, 103):
+        if command % 100 in self.tables and not (self.no_flags and command % 100 == 41):
             base = command % 100
             table = self.tables[base]
             size = len(table[0])

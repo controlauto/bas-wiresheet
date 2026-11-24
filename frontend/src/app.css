@@ -166,3 +166,20 @@ table.simtab, table.points { width: 100%; border-collapse: collapse; margin: 6px
 .xp-config .row > .field { display: inline-flex; flex-direction: column; width: auto; min-width: 120px; }
 .xp-config .row > .field input, .xp-config .row > .field select { width: auto; min-width: 110px; }
 .xp-config .row > .field:first-child input { min-width: 240px; }
+
+/* ---- schedules and PID ---- */
+.field.inl { display: inline-flex; flex-direction: column; width: auto; margin: 0; }
+.sch-editor { margin: 8px 0 14px; padding: 8px; background: var(--pane2); border-left: 3px solid #d95926; }
+.sch-table td, .sch-table th { padding: 3px 4px; }
+.sch-table input[type=time] { width: 96px; background: #0d131b; color: var(--text); border: 1px solid var(--line); border-radius: 2px; padding: 2px 4px; }
+.sch-bar { position: relative; height: 14px; background: #263140; border-radius: 2px; overflow: hidden; }
+.sch-bar span { position: absolute; top: 0; bottom: 0; background: #d95926; }
+.sch-bar i { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,.18); }
+.sel-row td { background: rgba(217,89,38,.12); }
+.cal { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-top: 8px; }
+.cal-h { font-weight: 700; margin-bottom: 3px; }
+.cal-g { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; font-size: 10px; text-align: center; }
+.cal-g i { color: var(--muted); font-style: normal; }
+.cal-g b { font-weight: 400; padding: 2px 0; border-radius: 2px; cursor: pointer; background: #1a2330; }
+.cal-g b:hover { outline: 1px solid var(--line); }
+.cal-g b.on { background: #d95926; color: #111; font-weight: 700; }

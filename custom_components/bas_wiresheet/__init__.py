@@ -36,7 +36,7 @@ from .const import (
     CONF_EDITORS, CONF_NODERED_TEST, DOMAIN, PANEL_ICON, PANEL_TITLE, PANEL_URL_PATH,
     PREVIEW_TTL_S, STATIC_URL, TARGET_PRODUCTION, TARGET_TEST, VERSION,
 )
-from . import t3000, t3000_bacnet, t3000_basic, t3000_import, t3000_points, t3000_policy, t3000_toolchain
+from . import t3000, t3000_bacnet, t3000_basic, t3000_import, t3000_points, t3000_policy, t3000_tables, t3000_toolchain
 from .t3000_policy import make_guard
 from .program_watch import ProgramWatch
 from .sheet_runner import SheetRunner
@@ -175,7 +175,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                     ws_t3_upload_plan, ws_t3_upload_apply, ws_t3_program_control, ws_t3_program_to_sheet, ws_t3_prog_file,
                     ws_t3_code_check, ws_t3_code_apply, ws_t3_code_restore, ws_t3_program_state, ws_t3_point_write,
                     ws_t3_discover, ws_sheet_access, ws_live_states, ws_history, ws_point_history,
-                    ws_program_watch_status, ws_program_watch_run, ws_sheet_run, ws_sheet_run_status, ws_templates, ws_program_export, ws_t3_point_config, ws_t3_point_config_write):
+                    ws_program_watch_status, ws_program_watch_run, ws_sheet_run, ws_sheet_run_status, ws_templates, ws_program_export, ws_t3_point_config, ws_t3_point_config_write,
+                    ws_t3_schedules, ws_t3_schedule_get, ws_t3_schedule_set, ws_t3_pids, ws_t3_pid_set):
         websocket_api.async_register_command(hass, handler)
     return True
 
@@ -574,6 +575,131 @@ async def ws_t3_point_config_write(hass, connection, msg):
     diff = ", ".join(f"{k}: {result['before'].get(k)!r} -> {result['after'].get(k)!r}" for k in msg["changes"] if result["before"].get(k) != result["after"].get(k))
     await _repo(hass).add_audit({"by": _user_label(connection), "action": "point_config", "target": f"t3000:{instance}:{name}", "ok": True,
                                  "detail": f"{name}: {diff or 'no change'}"})
+    connection.send_result(msg["id"], result)
+
+
+def _local_year(hass) -> int:
+    from homeassistant.util import dt as dt_util
+    return dt_util.now().year
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_schedules", vol.Required("instance"): int})
+@websocket_api.async_response
+async def ws_t3_schedules(hass, connection, msg):
+    """Read only: weekly and annual routines (names and state) of a controller."""
+    instance = msg["instance"]
+
+    def read(client):
+        if client.identify() != instance:
+            raise t3000_bacnet.UploadRefused("Wrong controller at this address")
+        weekly = [{"index": i, **t3000_tables.decode_weekly(t3000_tables.read_table(client, "weekly", i))} for i in range(1, 9)]
+        annual = [{"index": i, **t3000_tables.decode_annual(t3000_tables.read_table(client, "annual", i))} for i in range(1, 5)]
+        return {"weekly": weekly, "annual": annual}
+
+    try:
+        cfg = _t3_require(hass, instance)
+        result = await _t3_run(hass, instance, cfg, read)
+    except (*T3_ERRORS, IndexError, struct.error) as err:
+        connection.send_error(msg["id"], "t3000", str(err))
+        return
+    connection.send_result(msg["id"], {**result, "days": t3000_tables.DAYS})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_schedule_get", vol.Required("instance"): int,
+                                  vol.Required("kind"): vol.In(["weekly", "annual"]), vol.Required("index"): vol.All(int, vol.Range(min=1, max=8))})
+@websocket_api.async_response
+async def ws_t3_schedule_get(hass, connection, msg):
+    instance, kind, index = msg["instance"], msg["kind"], msg["index"]
+    year = _local_year(hass)
+    fn = (lambda c: t3000_tables.read_weekly(c, index)) if kind == "weekly" else (lambda c: t3000_tables.read_annual(c, index, year))
+    try:
+        cfg = _t3_require(hass, instance)
+        result = await _t3_run(hass, instance, cfg, fn)
+    except (*T3_ERRORS, IndexError, struct.error) as err:
+        connection.send_error(msg["id"], "t3000", str(err))
+        return
+    connection.send_result(msg["id"], {**result, "kind": kind, "days_names": t3000_tables.DAYS})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_schedule_set", vol.Required("instance"): int,
+                                  vol.Required("kind"): vol.In(["weekly", "annual"]), vol.Required("index"): vol.All(int, vol.Range(min=1, max=8)),
+                                  vol.Required("changes"): dict, vol.Required("confirm"): str})
+@websocket_api.async_response
+async def ws_t3_schedule_set(hass, connection, msg):
+    """Change a weekly or annual routine on the controller (read back to verify). Full access only."""
+    if not _require_editor(hass, connection, msg):
+        return
+    instance, kind, index = msg["instance"], msg["kind"], msg["index"]
+    name = f"{'WR' if kind == 'weekly' else 'AR'}{index}"
+    cfg = _t3_effective(hass, instance) or {}
+    if cfg.get("access") != "full":
+        connection.send_error(msg["id"], "not_allowed", f"Schedules can be changed only with full access (device {instance})")
+        return
+    if msg["confirm"].strip().upper() != name:
+        connection.send_error(msg["id"], "not_allowed", f"Type {name} to confirm")
+        return
+    year = _local_year(hass)
+    fn = (lambda c: t3000_tables.edit_weekly(c, instance, index, msg["changes"])) if kind == "weekly" else \
+        (lambda c: t3000_tables.edit_annual(c, instance, index, msg["changes"], year))
+    try:
+        result = await _t3_run(hass, instance, cfg, fn)
+    except (*T3_ERRORS, IndexError, struct.error, ValueError) as err:
+        await _repo(hass).add_audit({"by": _user_label(connection), "action": "schedule", "target": f"t3000:{instance}:{name}", "ok": False,
+                                     "detail": f"{name} change failed: {err}"})
+        connection.send_error(msg["id"], "t3000", str(err))
+        return
+    what = ", ".join(sorted(msg["changes"]))
+    await _repo(hass).add_audit({"by": _user_label(connection), "action": "schedule", "target": f"t3000:{instance}:{name}", "ok": True,
+                                 "detail": f"{name} ({result['after'].get('label') or result['after'].get('description')}): {what} changed"})
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_pids", vol.Required("instance"): int})
+@websocket_api.async_response
+async def ws_t3_pids(hass, connection, msg):
+    """Read only: the 16 PID controllers of a controller."""
+    instance = msg["instance"]
+
+    def read(client):
+        if client.identify() != instance:
+            raise t3000_bacnet.UploadRefused("Wrong controller at this address")
+        return t3000_tables.read_pids(client)
+
+    try:
+        cfg = _t3_require(hass, instance)
+        loops = await _t3_run(hass, instance, cfg, read)
+    except (*T3_ERRORS, IndexError, struct.error) as err:
+        connection.send_error(msg["id"], "t3000", str(err))
+        return
+    connection.send_result(msg["id"], {"loops": loops})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_pid_set", vol.Required("instance"): int,
+                                  vol.Required("index"): vol.All(int, vol.Range(min=1, max=16)), vol.Required("changes"): dict,
+                                  vol.Required("confirm"): str})
+@websocket_api.async_response
+async def ws_t3_pid_set(hass, connection, msg):
+    """Tune a PID controller on the controller (read back to verify). Full access only."""
+    if not _require_editor(hass, connection, msg):
+        return
+    instance, index = msg["instance"], msg["index"]
+    name = f"PID{index}"
+    cfg = _t3_effective(hass, instance) or {}
+    if cfg.get("access") != "full":
+        connection.send_error(msg["id"], "not_allowed", f"PID controllers can be changed only with full access (device {instance})")
+        return
+    if msg["confirm"].strip().upper() != name:
+        connection.send_error(msg["id"], "not_allowed", f"Type {name} to confirm")
+        return
+    try:
+        result = await _t3_run(hass, instance, cfg, lambda c: t3000_tables.edit_pid(c, instance, index, msg["changes"]))
+    except (*T3_ERRORS, IndexError, struct.error, ValueError) as err:
+        await _repo(hass).add_audit({"by": _user_label(connection), "action": "pid", "target": f"t3000:{instance}:{name}", "ok": False,
+                                     "detail": f"{name} change failed: {err}"})
+        connection.send_error(msg["id"], "t3000", str(err))
+        return
+    diff = ", ".join(f"{k}: {result['before'].get(k)} -> {result['after'].get(k)}" for k in msg["changes"])
+    await _repo(hass).add_audit({"by": _user_label(connection), "action": "pid", "target": f"t3000:{instance}:{name}", "ok": True, "detail": f"{name}: {diff}"})
     connection.send_result(msg["id"], result)
 
 
