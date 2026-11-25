@@ -102,10 +102,13 @@ features named.
 
 1. HACS > Integrations > ⋮ > *Custom repositories* > add this repository, category *Integration*.
 2. Install **BAS Wire Sheet for TEMCO** and restart Home Assistant.
-3. *Settings > Devices & services > Add integration > BAS Wire Sheet*. The options menu sets access, each controller,
-   MS/TP routers, locked equipment and Node-RED; changes apply without a restart (except the Program Watch time).
-   Or use YAML: add the configuration below (for example in `packages/bas_wiresheet.yaml`) and restart again.
-   When YAML configuration is present it takes precedence and the UI options are not used.
+3. *Settings > Devices & services > Add integration > BAS Wire Sheet*. **No YAML is needed.** The options menu sets
+   access, each controller, MS/TP routers, locked equipment (name, pattern, tag, keep out of monitoring sheets) and
+   Node-RED; changes apply without a restart (except the Program Watch time).
+
+**Moving from YAML:** an existing `bas_wiresheet:` YAML configuration is copied into a UI entry automatically on the first
+start of 0.9.7 (a notification says so). Remove the YAML configuration and restart: the UI entry then carries exactly the
+same settings. While the YAML is present it stays in use. YAML remains supported; the reference below lists its keys.
 
 ## Configuration
 

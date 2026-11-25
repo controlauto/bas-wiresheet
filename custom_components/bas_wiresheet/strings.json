@@ -77,11 +77,10 @@
       },
       "locked": {
         "title": "Locked equipment",
-        "data": {
-          "locked_equipment": "Equipment"
-        },
-        "data_description": {
-          "locked_equipment": "One per line: Name: regular expression matched against point labels, entity IDs and programs. For example  Boiler 2 commissioning: blr[_ -]?2"
+        "description": "Equipment locked by name pattern (labels, entity IDs and programs):\n\n{items}",
+        "menu_options": {
+          "locked_add": "Add equipment",
+          "locked_remove": "Remove equipment"
         }
       },
       "nodered": {
@@ -95,11 +94,30 @@
           "password": "Password",
           "verify_ssl": "Verify SSL certificate"
         }
+      },
+      "locked_add": {
+        "title": "Add locked equipment",
+        "data": {
+          "name": "Name",
+          "pattern": "Pattern (regular expression)",
+          "tag": "Tag (optional)",
+          "exclude_from_sheets": "Keep out of monitoring sheets"
+        },
+        "data_description": {
+          "pattern": "Matched against point labels, entity IDs and programs, for example blr[_ -]?2",
+          "tag": "Short equipment tag shown on sheets, for example BLR-2"
+        }
+      },
+      "locked_remove": {
+        "title": "Remove locked equipment",
+        "data": {
+          "remove": "Equipment to remove"
+        }
       }
     },
     "error": {
       "bad_router": "Use network=router IP, one per line",
-      "bad_pattern": "One of the patterns is not a valid regular expression"
+      "bad_pattern": "Not a valid regular expression"
     }
   }
 }

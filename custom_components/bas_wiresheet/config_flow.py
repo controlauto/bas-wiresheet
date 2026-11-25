@@ -23,6 +23,26 @@ def _ranges(text: str) -> list[str]:
     return [x.strip().upper() for x in re.split(r"[,\s]+", text or "") if x.strip()]
 
 
+def locked_items(value: Any) -> list[dict]:
+    """Locked equipment as stored in the options: a list of {name, pattern, tag?, exclude_from_sheets} (current) or
+    'name: pattern' lines (0.9.4-0.9.6)."""
+    if isinstance(value, list):
+        out = []
+        for i in value:
+            item = {"name": str(i["name"]), "pattern": str(i["pattern"]), "exclude_from_sheets": bool(i.get("exclude_from_sheets", False))}
+            if i.get("tag"):
+                item["tag"] = str(i["tag"])
+            out.append(item)
+        return out
+    out = []
+    for line in (value or "").splitlines():
+        if ":" in line:
+            name, pattern = line.split(":", 1)
+            if name.strip() and pattern.strip():
+                out.append({"name": name.strip(), "pattern": pattern.strip(), "exclude_from_sheets": False})
+    return out
+
+
 def options_to_conf(options: dict) -> dict:
     """Options saved by the UI -> the same structure as the YAML configuration (validated by CONFIG_SCHEMA)."""
     o = {**DEFAULTS, **options}
@@ -31,12 +51,7 @@ def options_to_conf(options: dict) -> dict:
         m = ROUTER_RE.match(part)
         if m:
             routers[int(m.group(1))] = m.group(2)
-    locked = []
-    for line in (o.get("locked_equipment") or "").splitlines():
-        if ":" in line:
-            name, pattern = line.split(":", 1)
-            if name.strip() and pattern.strip():
-                locked.append({"name": name.strip(), "pattern": pattern.strip()})
+    locked = locked_items(o.get("locked_equipment"))
     devices = {}
     for inst, d in (o.get("devices") or {}).items():
         dev = {"access": d.get("access", "restricted"), "allow_program_read": bool(d.get("allow_program_read", True)),
@@ -47,6 +62,8 @@ def options_to_conf(options: dict) -> dict:
             dev["model"] = d["model"]
         if d.get("address"):
             dev["address"] = d["address"].strip()
+        if d.get("allow_editing_physical_outputs"):
+            dev["allow_editing_physical_outputs"] = True
         devices[int(inst)] = dev
     conf: dict[str, Any] = {
         "admins_are_editors": bool(o["admins_are_editors"]), "editors": list(o.get("editors") or []),
@@ -60,8 +77,39 @@ def options_to_conf(options: dict) -> dict:
     return conf
 
 
+def conf_to_options(conf: dict) -> dict:
+    """Validated YAML configuration -> UI options that give back exactly the same configuration (YAML import)."""
+    t3 = conf.get("t3000") or {}
+    devices = {}
+    for inst, d in (t3.get("devices") or {}).items():
+        devices[str(inst)] = {"access": d.get("access", "restricted"), "allow_program_read": bool(d.get("allow_program_read", False)),
+                              "allow_point_writes": bool(d.get("allow_point_writes", False)),
+                              "program_write_slots": ", ".join(str(x) for x in d.get("program_write_slots") or []),
+                              "sandbox": ", ".join(d.get("sandbox") or []), "locked": ", ".join(d.get("locked") or []),
+                              "model": d.get("model") or "", "address": d.get("address") or "",
+                              "allow_editing_physical_outputs": bool(d.get("allow_editing_physical_outputs", False))}
+    wt = t3.get("program_watch_time", "02:30:00")
+    out = {"admins_are_editors": bool(conf.get("admins_are_editors", True)), "editors": list(conf.get("editors") or []),
+           "full_access_all_devices": bool(t3.get("full_access_all_devices", False)), "unlock_protected_points": bool(t3.get("unlock_protected_points", False)),
+           "program_watch": bool(t3.get("program_watch", True)), "program_watch_time": wt.strftime("%H:%M:%S") if hasattr(wt, "strftime") else str(wt),
+           "alarm_poll_s": int(t3.get("alarm_poll_s", 60)),
+           "mstp_routers": "\n".join(f"{k}={v}" for k, v in (t3.get("mstp_routers") or {}).items()),
+           "locked_equipment": locked_items(t3.get("locked_equipment") or []), "devices": devices}
+    nr = conf.get("nodered_test")
+    if nr:
+        out["nodered"] = {k: v for k, v in nr.items() if v not in (None, "")}
+    return out
+
+
 class BasWireSheetConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
+
+    async def async_step_import(self, import_data: dict):
+        """YAML configuration copied into a UI entry. It stays inactive while the YAML is present; once the YAML file
+        is removed and Home Assistant restarts, the entry carries exactly the same settings."""
+        if self._async_current_entries():
+            return self.async_abort(reason="single_instance_allowed")
+        return self.async_create_entry(title="BAS Wire Sheet", data={"imported_from_yaml": True}, options={**DEFAULTS, **import_data})
 
     async def async_step_user(self, user_input: dict | None = None):
         if self.hass.data.get(f"{DOMAIN}_yaml"):
@@ -138,7 +186,7 @@ class BasWireSheetOptionsFlow(config_entries.OptionsFlow):
             if user_input.pop("remove", False):
                 devices.pop(str(self._device), None)
             else:
-                devices[str(self._device)] = {k: v for k, v in user_input.items()}
+                devices[str(self._device)] = {**devices.get(str(self._device), {}), **user_input}  # keeps settings the form does not show
             return self._save(devices=devices)
         return self.async_show_form(step_id="controller_settings", description_placeholders={"instance": str(self._device)}, data_schema=vol.Schema({
             vol.Required("access", default=cur["access"]): selector.SelectSelector(selector.SelectSelectorConfig(options=["restricted", "full"])),
@@ -153,18 +201,37 @@ class BasWireSheetOptionsFlow(config_entries.OptionsFlow):
         }))
 
     async def async_step_locked(self, user_input=None):
-        if user_input is not None:
-            for line in (user_input.get("locked_equipment") or "").splitlines():
-                if line.strip() and ":" in line:
-                    try:
-                        re.compile(line.split(":", 1)[1].strip())
-                    except re.error:
-                        return self.async_show_form(step_id="locked", data_schema=self._locked_schema(user_input), errors={"locked_equipment": "bad_pattern"})
-            return self._save(**user_input)
-        return self.async_show_form(step_id="locked", data_schema=self._locked_schema(self._opts))
+        items = locked_items(self._opts.get("locked_equipment"))
+        listing = "\n".join(f"- {i['name']}" + (f" ({i['tag']})" if i.get("tag") else "") + f": `{i['pattern']}`"
+                            + (" · kept out of monitoring sheets" if i.get("exclude_from_sheets") else "") for i in items) or "None."
+        return self.async_show_menu(step_id="locked", menu_options=["locked_add", "locked_remove"] if items else ["locked_add"],
+                                    description_placeholders={"items": listing})
 
-    def _locked_schema(self, o: dict) -> vol.Schema:
-        return vol.Schema({vol.Optional("locked_equipment", default=o.get("locked_equipment") or ""): selector.TextSelector(selector.TextSelectorConfig(multiline=True))})
+    async def async_step_locked_add(self, user_input=None):
+        errors = {}
+        if user_input is not None:
+            try:
+                re.compile(user_input["pattern"])
+            except re.error:
+                errors["pattern"] = "bad_pattern"
+            if not errors:
+                item = {"name": user_input["name"].strip(), "pattern": user_input["pattern"].strip(),
+                        "exclude_from_sheets": bool(user_input.get("exclude_from_sheets"))}
+                if (user_input.get("tag") or "").strip():
+                    item["tag"] = user_input["tag"].strip()
+                return self._save(locked_equipment=locked_items(self._opts.get("locked_equipment")) + [item])
+        return self.async_show_form(step_id="locked_add", errors=errors, data_schema=vol.Schema({
+            vol.Required("name"): str, vol.Required("pattern"): str, vol.Optional("tag", default=""): str,
+            vol.Optional("exclude_from_sheets", default=False): bool}))
+
+    async def async_step_locked_remove(self, user_input=None):
+        items = locked_items(self._opts.get("locked_equipment"))
+        if user_input is not None:
+            drop = set(user_input.get("remove") or [])
+            return self._save(locked_equipment=[i for n, i in enumerate(items) if str(n) not in drop])
+        return self.async_show_form(step_id="locked_remove", data_schema=vol.Schema({
+            vol.Optional("remove", default=[]): selector.SelectSelector(selector.SelectSelectorConfig(
+                options=[selector.SelectOptionDict(value=str(n), label=i["name"]) for n, i in enumerate(items)], multiple=True))}))
 
     async def async_step_nodered(self, user_input=None):
         nr = self._opts.get("nodered") or {}

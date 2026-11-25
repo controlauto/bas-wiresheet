@@ -19,7 +19,7 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.components import panel_custom, websocket_api
+from homeassistant.components import panel_custom, persistent_notification, websocket_api
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
@@ -107,7 +107,17 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     if conf is None:
         return True  # set up from the UI (config entry) instead
     hass.data.setdefault(f"{DOMAIN}_yaml", True)
-    return await _async_setup_core(hass, conf, config)
+    ok = await _async_setup_core(hass, conf, config)
+    if not hass.config_entries.async_entries(DOMAIN):
+        # copy the YAML settings into a UI entry (inactive while the YAML exists), so the YAML can be removed later
+        from homeassistant.config_entries import SOURCE_IMPORT
+        from .config_flow import conf_to_options
+        hass.async_create_task(hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_IMPORT}, data=conf_to_options(conf)))
+        persistent_notification.async_create(
+            hass, "The BAS Wire Sheet YAML configuration was copied to Settings > Devices & services > BAS Wire Sheet. "
+            "To manage it from there, remove the `bas_wiresheet:` YAML configuration and restart Home Assistant. "
+            "Until then the YAML configuration stays in use.", title="BAS Wire Sheet", notification_id="bas_wiresheet_yaml_imported")
+    return ok
 
 
 async def async_setup_entry(hass: HomeAssistant, entry) -> bool:
@@ -245,7 +255,7 @@ async def _async_setup_core(hass: HomeAssistant, conf: dict, config: ConfigType)
         require_admin=False,
         config={"version": VERSION},
     )
-    for handler in (ws_catalog, ws_list, ws_get, ws_validate, ws_save_draft, ws_import, ws_commit, ws_restore,
+    for handler in (ws_catalog, ws_config_info, ws_list, ws_get, ws_validate, ws_save_draft, ws_import, ws_commit, ws_restore,
                     ws_deploy_preview, ws_deploy, ws_rollback, ws_target_status, ws_subscribe_live, ws_push_result,
                     ws_t3_devices, ws_t3_points, ws_t3_compile, ws_delete_sheet, ws_t3_program_list, ws_t3_program_read,
                     ws_t3_upload_plan, ws_t3_upload_apply, ws_t3_program_control, ws_t3_program_to_sheet, ws_t3_prog_file,
@@ -310,6 +320,25 @@ def _repo(hass) -> SheetRepository:
 
 
 # ---------------- read commands (operator + editor) ----------------
+
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/config_info"})
+@callback
+def ws_config_info(hass, connection, msg):
+    """Where the configuration comes from and a digest of it (no secrets), to compare a YAML and a UI setup."""
+    import hashlib
+    conf = hass.data[DOMAIN]["conf"]
+    plain = json.loads(json.dumps(conf, default=str))
+    if isinstance(plain.get(CONF_NODERED_TEST), dict):
+        plain[CONF_NODERED_TEST] = {k: v for k, v in plain[CONF_NODERED_TEST].items() if k not in ("password", "username")}
+    t3 = plain.get("t3000", {})
+    connection.send_result(msg["id"], {
+        "source": "yaml" if hass.data.get(f"{DOMAIN}_yaml") else "ui", "entries": len(hass.config_entries.async_entries(DOMAIN)),
+        "digest": hashlib.sha256(json.dumps(plain, sort_keys=True).encode()).hexdigest()[:16],
+        "summary": {"devices": sorted(t3.get("devices", {})), "locked_equipment": [i.get("name") for i in t3.get("locked_equipment", [])],
+                    "full_access_all_devices": t3.get("full_access_all_devices"), "unlock_protected_points": t3.get("unlock_protected_points"),
+                    "program_watch_time": t3.get("program_watch_time"), "editors": len(plain.get("editors", [])),
+                    "nodered": bool(plain.get(CONF_NODERED_TEST))}})
+
 
 @websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/catalog"})
 @websocket_api.async_response
