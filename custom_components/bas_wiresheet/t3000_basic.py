@@ -22,7 +22,8 @@ from . import panels
 POINT_RE = re.compile(r"^(IN|OUT|VAR)([1-9]\d*)$")
 POINT_LIMITS = {"IN": 64, "OUT": 64, "VAR": 128}
 COMPARE_OPS = {">": ">", ">=": ">=", "<": "<", "<=": "<=", "==": "=", "!=": "<>"}
-T3000_BLOCKS = {"t3_read", "t3_write", "edge", "counter", "alarm", "modbus_read", "modbus_write", "constant", "compare", "and", "or", "not", "on_delay", "off_delay", "status_display", "xor", "latch", "range_check",
+LOCAL_RE = re.compile(r"^[A-Z_][A-Z0-9_]{0,19}$")
+T3000_BLOCKS = {"t3_read", "t3_write", "edge", "counter", "alarm", "cb_local_read", "cb_local_write", "modbus_read", "modbus_write", "constant", "compare", "and", "or", "not", "on_delay", "off_delay", "status_display", "xor", "latch", "range_check",
                 "add", "subtract", "multiply", "divide", "minimum", "maximum", "absolute", "limit", "scale", "hysteresis", "select", "pi"}
 # Modbus RTU points of any device on the controller's RS-485 port in Modbus Master mode. Control Basic remote point
 # syntax <panel>.<slave id>.<type><register> (T3000 CM5 point type names; compiled and listed back by T3000's own code).
@@ -55,7 +56,7 @@ def modbus_point(panel: int, params: dict, write: bool = False) -> tuple[str | N
     return f"{int(panel)}.{slave}.{MODBUS_TYPES[rtype]}{addr}", None
 
 
-SIMPLE_RE = re.compile(r"^(-?\d+(\.\d+)?|(IN|OUT|VAR)\d+)$")
+SIMPLE_RE = re.compile(r"^(-?\d+(\.\d+)?|[A-Z_][A-Z0-9_]*)$")  # a number, a point or a (local) variable
 MAX_FIXED = 2_147_483_647
 
 Guard = Callable[[str, int], tuple[bool, str]]
@@ -112,6 +113,11 @@ class _Gen:
         self.work_used: list[str] = []
         self.work_free: list[str] = []
         self.groups: set[str] = set()
+        self.cse: dict[tuple[str, str], str] = {}  # stored expression -> work variable (each is assigned once per scan)
+        self.work_locals = bool((sheet.get("t3000") or {}).get("work_locals"))
+        self.local_n = 0
+        self.work_locals_used: list[str] = []
+        self.local_names = {str((b.get("params") or {}).get("name", "")).upper() for b in self.blocks.values() if b.get("type") in ("cb_local_read", "cb_local_write")}
 
     def err(self, code: str, message: str, block: str | None = None, param: str | None = None) -> None:
         item: dict[str, Any] = {"severity": "error", "code": code, "message": message}
@@ -124,7 +130,17 @@ class _Gen:
     def emit(self, text: str) -> None:
         self.lines.append(text)
 
-    def take_work(self, bid: str) -> str:
+    def take_work(self, bid: str, timer: bool = False) -> str:
+        """A work variable. With t3000.work_locals, values that are not timed are kept in program-local variables
+        (they never collide with other programs); TIME-ON / TIME-OFF need a VAR point (T3000 does not time locals)."""
+        if self.work_locals and not timer:
+            self.local_n += 1
+            name = f"WK{self.local_n}"
+            while name in self.local_names:
+                self.local_n += 1
+                name = f"WK{self.local_n}"
+            self.work_locals_used.append(name)
+            return name
         if not self.work_free:
             self.err("t3_no_work_var", "Not enough work variables; add sandbox VARs to the sheet's work_vars", bid)
             return "VAR1"
@@ -140,16 +156,22 @@ class _Gen:
         """Keep AND/OR operands free of inner groups so T3000's listing cannot change the logic."""
         if expr not in self.groups:
             return expr
+        if ("bool", expr) in self.cse:  # the same condition was already stored in this scan
+            return self.cse[("bool", expr)]
         w = self.take_work(bid)
         self.emit(f"IF {expr} THEN {w} = 1 ELSE {w} = 0")
+        self.cse[("bool", expr)] = f"( {w} > 0 )"
         return f"( {w} > 0 )"
 
     def simple(self, bid: str, expr: str) -> str:
         """Return a point or constant, storing any other expression in a work variable."""
         if SIMPLE_RE.match(expr):
             return expr
+        if ("num", expr) in self.cse:
+            return self.cse[("num", expr)]
         w = self.take_work(bid)
         self.emit(f"{w} = {expr}")
+        self.cse[("num", expr)] = w
         return w
 
     def number(self, bid: str, params: dict, key: str) -> str | None:
@@ -188,6 +210,10 @@ class _Gen:
             name = f"{parsed[0]}{parsed[1]}"
             self.reads.add(name)
             return f"( {name} <> 0 )" if p.get("value_type") == "boolean" else name
+        if t == "cb_local_read":
+            # a local variable of the program, as it was at the start of the scan (local writes are emitted last)
+            name = self.local_name(b)
+            return name or "0"
         if t == "modbus_read":
             name, error = modbus_point(self.panel, p)
             if error:
@@ -247,7 +273,7 @@ class _Gen:
                 self.err("t3_number", str(e), bid, "delay_s")
                 return "0"
             source = self.input(bid, "in")
-            w = self.take_work(bid)
+            w = self.take_work(bid, timer=True)
             self.emit(f"IF {source} THEN {w} = 1 ELSE {w} = 0")
             if t == "on_delay":
                 self.state_map[bid] = {"kind": "on_delay", "timer": w, "delay_s": float(delay)}
@@ -264,7 +290,7 @@ class _Gen:
             except (TypeError, ValueError) as e:
                 self.err("t3_number", str(e), bid, "delay_s")
                 return "0"
-            w = self.take_work(bid)
+            w = self.take_work(bid, timer=True)
             self.emit(f"IF {self.input(bid, 'in')} THEN {w} = 1 ELSE {w} = 0")
             self.state_map[bid] = {"kind": "on_delay", "timer": w, "delay_s": float(delay)}
             return self.group(f"( ( {w} > 0 ) AND ( TIME-ON( {w} ) >= {delay} ) )")
@@ -280,7 +306,7 @@ class _Gen:
                 return "0"
             kind = p.get("edge", "rising")
             x = self.atom(bid, self.input(bid, "in"))
-            wp, wt, wl = self.take_work(bid), self.take_work(bid), self.take_work(bid)
+            wp, wt, wl = self.take_work(bid), self.take_work(bid, timer=True), self.take_work(bid)
             if kind == "falling":
                 self.emit(f"IF ( {wp} = 2 ) AND ( NOT {x} ) THEN {wt} = 1 ELSE {wt} = 0")
             else:
@@ -390,6 +416,13 @@ class _Gen:
             return w
         return None
 
+    def local_name(self, b: dict) -> str | None:
+        name = str((b.get("params") or {}).get("name", "")).strip().upper()
+        if not LOCAL_RE.match(name) or POINT_RE.match(name) or name in ("IF", "THEN", "ELSE", "AND", "OR", "NOT", "END", "GOTO", "TIME"):
+            self.err("t3_local", f"Local variable name {name or '(empty)'} is not valid (letters, digits and _, up to 20)", b["id"], "name")
+            return None
+        return name
+
     def check_write(self, b: dict) -> str | None:
         bid = b["id"]
         parsed = parse_point((b.get("params") or {}).get("point"))
@@ -434,10 +467,13 @@ class _Gen:
             allowed, reason = self.guard(kind, idx)
             if kind != "VAR" or not allowed:
                 self.err("t3_work_denied", f"Work variable {w} is not usable: {reason if not allowed else 'must be a VAR'}")
-        writers = sorted((b for b in self.blocks.values() if b.get("type") in ("t3_write", "modbus_write")), key=lambda x: x["id"])
+        # local variable writes go last, so every read of a local in this scan sees the value from the start of the scan
+        writers = sorted((b for b in self.blocks.values() if b.get("type") in ("t3_write", "modbus_write", "cb_local_write")),
+                         key=lambda x: (x.get("type") == "cb_local_write", x["id"]))
         if not writers:
             self.err("t3_no_write", "A T3000 program needs at least one T3000 Write or Modbus Write block")
-        targets = [(b, self.check_modbus_write(b) if b.get("type") == "modbus_write" else self.check_write(b)) for b in writers]
+        targets = [(b, self.check_modbus_write(b) if b.get("type") == "modbus_write" else self.local_name(b) if b.get("type") == "cb_local_write"
+                    else self.check_write(b)) for b in writers]
         for b in self.blocks.values():
             if b.get("type") == "t3_read":
                 parsed = parse_point((b.get("params") or {}).get("point"))

@@ -104,10 +104,35 @@ def list_devices(hass: HomeAssistant, conf: dict, include_all: bool = False) -> 
             "entry": _entry_options(hass, device), "heartbeat": _heartbeat(hass, entities), "counts": counts,
             "configured": cfg is not None,
         })
+    # controllers configured by IP address that the BACnet/IP integration does not know (for example a Tstat10 that
+    # answers as a routed device): reached directly by T3000 requests, no Home Assistant entities
+    seen = {d["instance"] for d in out}
+    for inst, d in sorted((conf.get("devices") or {}).items()):
+        if int(inst) in seen or not d.get("address"):
+            continue
+        model = d.get("model")
+        out.append({
+            "device_id": f"{DIRECT_PREFIX}{int(inst)}", "instance": int(inst), "name": d.get("name") or f"Controller {inst}",
+            "manufacturer": "TEMCO", "reported_model": model, "sw_version": None, "model": model,
+            "model_source": MODEL_PROFILES.get(model or "", {}).get("source"), "entry": {"device_address": d.get("address")},
+            "heartbeat": {"last_poll": None}, "counts": {"IN": 0, "OUT": 0, "VAR": 0, "OTHER": 0}, "configured": True, "direct": True,
+        })
     return sorted(out, key=lambda d: (d["name"] or "").lower())
 
 
+DIRECT_PREFIX = "t3direct:"
+
+
 def list_points(hass: HomeAssistant, conf: dict, device_id: str) -> dict:
+    if device_id.startswith(DIRECT_PREFIX):  # reached by IP only: points come from the controller tables, not entities
+        inst = int(device_id[len(DIRECT_PREFIX):])
+        d = (conf.get("devices") or {}).get(inst) or (conf.get("devices") or {}).get(str(inst))
+        if not d:
+            raise ValueError("Not a configured controller")
+        model = d.get("model")
+        return {"device": {"device_id": device_id, "instance": inst, "name": d.get("name") or f"Controller {inst}", "model": model,
+                           "model_source": MODEL_PROFILES.get(model or "", {}).get("source"), "entry": {"device_address": d.get("address")},
+                           "heartbeat": {"last_poll": None}, "stale_after_s": 0, "direct": True}, "points": [], "now": time.time() * 1000}
     dev_reg, ent_reg = dr.async_get(hass), er.async_get(hass)
     device = dev_reg.async_get(device_id)
     if device is None or _bacnet_instance(device) is None:

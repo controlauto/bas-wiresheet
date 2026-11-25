@@ -12,7 +12,7 @@ from homeassistant.helpers import selector
 from .const import DOMAIN
 
 DEFAULTS: dict[str, Any] = {
-    "admins_are_editors": True, "editors": [], "full_access_all_devices": False, "unlock_protected_points": False,
+    "admins_are_editors": True, "editors": [], "full_access_all_devices": False, "unlock_protected_points": False, "unrestricted": False,
     "program_watch": True, "program_watch_time": "02:30:00", "alarm_poll_s": 60, "mstp_routers": "", "locked_equipment": "", "devices": {},
 }
 MODELS = ["", "T3-BB", "T3-LB", "T3-TB", "T3-TB-11I", "TSTAT10"]
@@ -64,10 +64,13 @@ def options_to_conf(options: dict) -> dict:
             dev["address"] = d["address"].strip()
         if d.get("allow_editing_physical_outputs"):
             dev["allow_editing_physical_outputs"] = True
+        if (d.get("name") or "").strip():
+            dev["name"] = d["name"].strip()
         devices[int(inst)] = dev
     conf: dict[str, Any] = {
         "admins_are_editors": bool(o["admins_are_editors"]), "editors": list(o.get("editors") or []),
         "t3000": {"full_access_all_devices": bool(o["full_access_all_devices"]), "unlock_protected_points": bool(o["unlock_protected_points"]),
+                  "unrestricted": bool(o.get("unrestricted", False)),
                   "program_watch": bool(o["program_watch"]), "program_watch_time": o["program_watch_time"], "alarm_poll_s": int(o["alarm_poll_s"]),
                   "mstp_routers": routers, "locked_equipment": locked, "devices": devices},
     }
@@ -87,10 +90,12 @@ def conf_to_options(conf: dict) -> dict:
                               "program_write_slots": ", ".join(str(x) for x in d.get("program_write_slots") or []),
                               "sandbox": ", ".join(d.get("sandbox") or []), "locked": ", ".join(d.get("locked") or []),
                               "model": d.get("model") or "", "address": d.get("address") or "",
-                              "allow_editing_physical_outputs": bool(d.get("allow_editing_physical_outputs", False))}
+                              "allow_editing_physical_outputs": bool(d.get("allow_editing_physical_outputs", False)),
+                              **({"name": d["name"]} if d.get("name") else {})}
     wt = t3.get("program_watch_time", "02:30:00")
     out = {"admins_are_editors": bool(conf.get("admins_are_editors", True)), "editors": list(conf.get("editors") or []),
            "full_access_all_devices": bool(t3.get("full_access_all_devices", False)), "unlock_protected_points": bool(t3.get("unlock_protected_points", False)),
+           "unrestricted": bool(t3.get("unrestricted", False)),
            "program_watch": bool(t3.get("program_watch", True)), "program_watch_time": wt.strftime("%H:%M:%S") if hasattr(wt, "strftime") else str(wt),
            "alarm_poll_s": int(t3.get("alarm_poll_s", 60)),
            "mstp_routers": "\n".join(f"{k}={v}" for k, v in (t3.get("mstp_routers") or {}).items()),
@@ -159,6 +164,7 @@ class BasWireSheetOptionsFlow(config_entries.OptionsFlow):
             vol.Optional("editors", default=o.get("editors") or []): selector.SelectSelector(selector.SelectSelectorConfig(options=[], multiple=True, custom_value=True)),
             vol.Required("full_access_all_devices", default=o["full_access_all_devices"]): bool,
             vol.Required("unlock_protected_points", default=o["unlock_protected_points"]): bool,
+            vol.Required("unrestricted", default=bool(o.get("unrestricted", False))): bool,
             vol.Required("program_watch", default=o["program_watch"]): bool,
             vol.Required("program_watch_time", default=o["program_watch_time"]): selector.TimeSelector(),
             vol.Required("alarm_poll_s", default=o["alarm_poll_s"]): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=3600, step=10, unit_of_measurement="s", mode="box")),
@@ -181,7 +187,7 @@ class BasWireSheetOptionsFlow(config_entries.OptionsFlow):
     async def async_step_controller_settings(self, user_input=None):
         devices = dict(self._opts.get("devices") or {})
         cur = {"access": "restricted", "allow_program_read": True, "allow_point_writes": False, "program_write_slots": "", "sandbox": "",
-               "locked": "", "model": "", "address": "", **devices.get(str(self._device), {})}
+               "locked": "", "model": "", "address": "", "name": "", **devices.get(str(self._device), {})}
         if user_input is not None:
             if user_input.pop("remove", False):
                 devices.pop(str(self._device), None)
@@ -197,6 +203,7 @@ class BasWireSheetOptionsFlow(config_entries.OptionsFlow):
             vol.Optional("locked", default=cur["locked"]): str,
             vol.Optional("model", default=cur["model"]): selector.SelectSelector(selector.SelectSelectorConfig(options=MODELS, mode="dropdown")),
             vol.Optional("address", default=cur["address"]): str,
+            vol.Optional("name", default=cur.get("name") or ""): str,
             vol.Optional("remove", default=False): bool,
         }))
 

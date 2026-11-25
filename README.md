@@ -34,6 +34,10 @@ and TEMCO controllers on **BACnet MS/TP** behind a BACnet router are supported.
 - **Trend Logs**: the controller's 12 monitors (inputs and interval), with charts of their points from the recorder.
 - **Live values in code**: the Control Basic listing with the current value of every point next to each line (manual
   points highlighted), the program's local variables and timers; refreshed every 5 s, read only.
+- **Controllers by IP address**: *Add by IP* identifies a TEMCO controller at an address and adds it — no BACnet router
+  and no BACnet/IP integration entry needed. This covers controllers the BACnet/IP integration cannot add, such as a
+  Tstat10 on Wi-Fi that answers as a routed device (virtual network). Its points are read from the controller's own
+  tables; Tstat10-class controllers are paced more gently.
 - **Discovery**: Who-Is through the BACnet/IP integration; TEMCO controllers on BACnet/IP and MS/TP.
 
 **Wire sheets**
@@ -46,6 +50,10 @@ and TEMCO controllers on **BACnet MS/TP** behind a BACnet router are supported.
 - Edge Pulse, Counter and Alarm also run on the controller. Moving Average, Rate of Change and Rate Limit need a sample
   history and are offered on monitoring sheets only. Each controller block is checked in T3000's interpreter against the
   browser runtime.
+- **Make Editable**: a sheet generated from a controller program becomes an editable copy that can be sent back. Work
+  variables are picked automatically (VARs no program on the controller uses); intermediate values live in program-local
+  variables. Programs whose block form exceeds T3000's 2000-byte limit, or that loop with a backward GOTO, are reported
+  and stay editable as Control Basic. Local variables are available as blocks on T3000 sheets.
 - **Send to Controller**: one step from a T3000 sheet — saves a revision, compiles, shows the change against the
   controller, then loads or replaces the program, verifies it, keeps a backup and starts it.
 - **Controller faceplates** (*Controller Inputs* and *Controller Outputs*): the controller drawn as terminal strips with
@@ -140,6 +148,12 @@ bas_wiresheet:
 ```
 
 ## Access and safety
+
+**No restrictions** (option *No restrictions on the controllers*, YAML `t3000: unrestricted: true`) turns off every limit
+of this integration on TEMCO controllers, current and future: no typed confirmations, every point and output writable,
+program edits not checked against write rules. Controller identity checks, read-back verification, automatic backups
+and restore on failure stay, as does the refusal to edit a program whose own T3000 listing changes its logic.
+
 
 - **Restricted** (default): program read where enabled, writes only to listed program slots, point writes only to
   sandbox points on virtual ports.

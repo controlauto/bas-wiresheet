@@ -10,6 +10,7 @@ import {
   qualityLabel, FRESH_CLASS, SCHEMA, t3LiveSnapshot, cloneSelection, nodeTypeOf,
 } from "./model.js";
 import { Faceplate, PANEL_TYPES, TerminalPanel } from "./Faceplate.jsx";
+import { CONFIRM } from "./confirm.js";
 import SCENARIOS from "./scenarios.js";
 import Explorer from "./Explorer.jsx";
 import { History, TrendChart, buildDocument, SheetRuntime, TemplateDialog } from "./Extras.jsx";
@@ -992,6 +993,7 @@ function Editor({ hass, boot, initialSheet }) {
             <button className="btn" disabled={!latestRev || !targets.length || (sheet && sheet.mode === "t3000") || sheetLocked} onClick={() => setDialog({ kind: "deploy", rev: latestRev })} data-testid="deploy">Deploy to Test</button>
             <button className="btn" disabled={!lastDeploy || sheetLocked} onClick={() => setDialog({ kind: "rollback" })}>Rollback Test</button>
             <button className="btn" disabled title={production.reason}>Publish to Production</button>
+            {sheet && sheet.mode === "t3000" && imported && role === "editor" && <button className="btn primary" onClick={() => setDialog({ kind: "editable" })} title="Make an editable copy of this generated sheet that can be sent to the controller" data-testid="make-editable">Make Editable</button>}
             {sheet && sheet.mode === "t3000" && <button className="btn" disabled={imported} title={imported ? "Generated from a controller program: documentation only" : ""} onClick={() => setDialog({ kind: "t3compile" })} data-testid="t3-compile">Compile T3000</button>}
             {sheet && sheet.mode === "t3000" && <button className="btn primary send" disabled={imported || sheetLocked || mode !== MODE.EDIT || errors.length > 0} title={imported ? "Generated from a controller program: documentation only" : errors.length ? "Fix validation errors first" : "Save, compile and load this sheet to its controller in one step"} onClick={() => setDialog({ kind: "send" })} data-testid="t3-send">Send to Controller</button>}
             {sheet && sheet.mode === "t3000" && <button className="btn" disabled={!latestRev || imported || sheetLocked} title={imported ? "Generated from a controller program: documentation only" : latestRev ? "" : "Save a revision first"} onClick={() => setDialog({ kind: "t3upload", rev: latestRev })} data-testid="t3-upload">Controller…</button>}
@@ -1007,8 +1009,8 @@ function Editor({ hass, boot, initialSheet }) {
             <input className="lib-search" placeholder="Search blocks" value={libFilter} onChange={(e) => setLibFilter(e.target.value)} data-testid="lib-search" />
             {catalog.categories.map((cat) => {
               const items = Object.entries(catalog.blocks).filter(([t, d]) => d.category === cat && (!(meta && meta.mode === "t3000") || !["entity_input", "data_freshness", "average", "rate", "ramp"].includes(t))
-                && (!(meta && meta.mode !== "t3000") || !["t3_read", "t3_write", "t3_panel_in", "t3_panel_out", "modbus_read", "modbus_write"].includes(t))
-                && !["cb_unmapped", "cb_local_read", "cb_local_write"].includes(t) // only in sheets generated from a controller program
+                && (!(meta && meta.mode !== "t3000") || !["t3_read", "t3_write", "t3_panel_in", "t3_panel_out", "modbus_read", "modbus_write", "cb_local_read", "cb_local_write"].includes(t))
+                && t !== "cb_unmapped" // only in sheets generated from a controller program
                 && (!libFilter || `${d.label} ${d.description} ${cat}`.toLowerCase().includes(libFilter.toLowerCase())));
               if (!items.length) return null;
               return (
@@ -1102,6 +1104,9 @@ function Editor({ hass, boot, initialSheet }) {
         {dialog && dialog.kind === "send" && <SendDialog ws={ws} sheet={sheet} dirty={dirty} onSaved={async () => { setDirty(false); await refreshList(); setInfo(await ws({ type: "bas_wiresheet/get", sheet_id: sheetId })); }} onClose={() => setDialog(null)} onDone={async () => setInfo(await ws({ type: "bas_wiresheet/get", sheet_id: sheetId }))} />}
         {dialog && dialog.kind === "t3upload" && <T3UploadDialog ws={ws} sheetId={sheetId} rev={dialog.rev} info={info} onClose={() => setDialog(null)} onChanged={async () => setInfo(await ws({ type: "bas_wiresheet/get", sheet_id: sheetId }))} />}
         {dialog && dialog.kind === "delete" && <DeleteDialog ws={ws} sheet={sheet} onClose={() => setDialog(null)} onDone={async () => { setDialog(null); const r = await ws({ type: "bas_wiresheet/list" }); await refreshList(); if (r.sheets.length) await loadSheet(r.sheets[0].id); else window.location.reload(); notify("Sheet deleted"); }} />}
+        {dialog && dialog.kind === "editable" && <EditableDialog ws={ws} sheet={sheet} onClose={() => setDialog(null)}
+          onPick={(bid) => { setDialog(null); setSelection({ kind: "node", id: bid }); const n = nodeById[bid]; if (n) rf.setCenter(n.position.x + 120, n.position.y + 60, { zoom: 1.1, duration: 300 }); }}
+          onOpen={async (id) => { setDialog(null); await refreshList(); await loadSheet(id); setMode(MODE.EDIT); notify(`Opened ${id}: editable copy`); }} />}
         {dialog && dialog.kind === "t3compile" && <T3CompileDialog ws={ws} sheet={sheet} onClose={() => setDialog(null)} />}
         {dialog && dialog.kind === "deploy" && <DeployDialog ws={ws} sheetId={sheetId} rev={dialog.rev} onClose={() => setDialog(null)} onDone={async (r) => { setDialog(null); setInfo(await ws({ type: "bas_wiresheet/get", sheet_id: sheetId })); notify(`Revision ${r.rev} deployed to test Node-RED (${r.status})`); }} />}
         {dialog && dialog.kind === "rollback" && (
@@ -1389,8 +1394,9 @@ export default function App({ hass }) {
 function Shell({ hass, boot }) {
   const [view, setView] = useState("sheets");
   const [openSheet, setOpenSheet] = useState(null);
+  CONFIRM.on = !boot.unrestricted;
   return (
-    <div className="shell">
+    <div className={`shell ${boot.unrestricted ? "no-confirm" : ""}`}>
       <nav className="shell-nav">
         <button className={`seg-b ${view === "sheets" ? "on" : ""}`} onClick={() => setView("sheets")} data-testid="view-sheets">Wire Sheets</button>
         <button className={`seg-b ${view === "t3000" ? "on" : ""}`} onClick={() => setView("t3000")} data-testid="view-t3000">T3000 Explorer</button>
@@ -1398,5 +1404,43 @@ function Shell({ hass, boot }) {
       </nav>
       {view === "history" ? <History hass={hass} role={boot.role} /> : view === "sheets" ? <ReactFlowProvider><Editor key={openSheet || "editor"} hass={hass} boot={boot} initialSheet={openSheet} /></ReactFlowProvider> : <div className="app"><Explorer hass={hass} role={boot.role} onOpenSheet={(id) => { setOpenSheet(id); setView("sheets"); }} /></div>}
     </div>
+  );
+}
+
+/* Editable copy of a sheet generated from a controller program (the generated sheet stays as documentation). */
+function EditableDialog({ ws, sheet, onClose, onPick, onOpen }) {
+  const [work, setWork] = useState("VAR125-128");
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState(null);
+  const [err, setErr] = useState(null);
+  const t3 = sheet.t3000 || {};
+  const make = async () => {
+    setBusy(true); setErr(null);
+    try { setRes(await ws({ type: "bas_wiresheet/t3_make_editable", sheet_id: sheet.id, work_vars: work.split(",").map((x) => x.trim().toUpperCase()).filter(Boolean) })); }
+    catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+  const errors = res && res.created ? (res.issues || []).filter((i) => i.severity === "error") : [];
+  return (
+    <Modal title="Make Editable" onClose={onClose} actions={!res
+      ? <button className="btn primary" disabled={busy || !work.trim()} onClick={make} data-testid="editable-make">{busy ? "Working…" : "Create Editable Copy"}</button>
+      : res.created ? <button className="btn primary" onClick={() => onOpen(res.sheet_id)} data-testid="editable-open">Open {res.sheet_id}</button> : null}>
+      {!res && <>
+        <p>This sheet documents program {t3.program_slot} of controller {t3.device_instance}. An editable copy is created next to it. You can change the copy and send it with <b>Send to Controller</b>, which replaces the program on the controller with the code compiled from the sheet (a backup is kept).</p>
+        <label className="field"><span>Work Variables</span><input className="mono" value={work} onChange={(e) => setWork(e.target.value)} data-testid="editable-work" />
+          <small>Free VARs the new program may use for timers and intermediate results. They must not be used by any other program on this controller.</small></label>
+      </>}
+      {err && <div className="errtxt" data-testid="editable-error">{err}</div>}
+      {res && !res.created && <div data-testid="editable-blockers">
+        <div className="errtxt">This program has parts that have no block, so the sheet cannot be compiled back to the same program:</div>
+        <ul>{(res.blockers || []).map((b, i) => <li key={i}>{b.block ? <a href="#" onClick={(e) => { e.preventDefault(); onPick(b.block); }}>{b.message}</a> : b.message}</li>)}</ul>
+        <div className="muted small">Edit this program as code instead: T3000 Explorer &gt; Programs &gt; View &gt; Update Controller.</div>
+      </div>}
+      {res && res.created && <div data-testid="editable-done">
+        <div className="ok-txt">Created <b className="mono">{res.sheet_id}</b>.</div>
+        {errors.length ? <><div className="warn-txt">Fix before sending:</div><ul>{errors.map((i, n) => <li key={n}>{i.message}</li>)}</ul></>
+          : <div className="muted">Compiles to {res.bytes} bytes · writes {(res.writes || []).join(", ") || "nothing"}. Review the difference in Send to Controller before replacing the program.</div>}
+      </div>}
+    </Modal>
   );
 }

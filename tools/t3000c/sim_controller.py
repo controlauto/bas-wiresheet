@@ -16,8 +16,12 @@ _s.loader.exec_module(tb)
 
 
 class SimController:
-    def __init__(self, instance: int = 999001, port: int = 0, route: tuple[int, int] | None = None) -> None:
+    def __init__(self, instance: int = 999001, port: int = 0, route: tuple[int, int] | None = None,
+                 routed_source: tuple[int, bytes] | None = None) -> None:
         self.route = route          # (network, MS/TP MAC): behave like a controller behind a BACnet router
+        # (network, MAC): answer plain unicast requests with a routed source, as a Tstat10 on Wi-Fi does
+        # (seen on a Tstat10 on Wi-Fi); HA's BACnet/IP integration drops such replies
+        self.routed_source = routed_source
         self.instance = instance
         self.code = [bytearray(tb.CODE_SIZE) for _ in range(16)]
         self.on = [False] * 16
@@ -78,7 +82,11 @@ class SimController:
             invoke, service, body = apdu[2], apdu[3], apdu[4:]
             reply = self._handle(invoke, service, body)
             if reply is not None:
-                if self.route is None:
+                if self.route is None and self.routed_source is not None:
+                    net, mac = self.routed_source
+                    npdu = bytes([1, 0x08]) + net.to_bytes(2, "big") + bytes([len(mac)]) + mac + reply
+                    self.sock.sendto(bytes([0x81, 0x0A]) + (len(npdu) + 4).to_bytes(2, "big") + npdu, addr)
+                elif self.route is None:
                     self.sock.sendto(tb.bvll(reply, expect_reply=False), addr)
                 else:   # router forwards the reply with the source network and MAC
                     npdu = bytes([1, 0x08]) + self.route[0].to_bytes(2, "big") + bytes([1, self.route[1]]) + reply

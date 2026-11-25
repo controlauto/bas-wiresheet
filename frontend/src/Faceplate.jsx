@@ -1,6 +1,7 @@
 // Controller faceplates for T3000 program sheets: the controller's physical inputs and outputs drawn as terminal
 // strips (label, live value, status light, hand/auto switch), its ports and status lights. Wires attach to terminals:
 // a wire from an input terminal reads that input, a wire into an output terminal writes that output.
+import { typedOk } from "./confirm.js";
 import React, { useEffect, useState } from "react";
 import { Handle, Position } from "@xyflow/react";
 
@@ -221,8 +222,8 @@ export function TerminalPanel({ ws, c, node, pin, edges, canEdit, onPinType, onR
             : field(`Manual value${cfg.units ? ` (${cfg.units})` : ""}`, <input type="number" step="any" value={edit.value} disabled={dis} onChange={(e) => setEdit({ ...edit, value: e.target.value === "" ? 0 : Number(e.target.value) })} data-testid="term-value-in" />))}
         </div>
         {canEdit && <div className="row" style={{ gap: 8, alignItems: "flex-end" }}>
-          {field(`Type ${pin} to confirm`, <input className="mono" style={{ width: 90 }} value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="term-confirm" />)}
-          <button className="btn primary" disabled={busy || !Object.keys(changes).length || typed.trim().toUpperCase() !== pin} onClick={save} data-testid="term-save">Save to Controller</button>
+          {field(`Type ${pin} to confirm`, <input className="mono" style={{ width: 90 }} data-confirm="1" value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="term-confirm" />)}
+          <button className="btn primary" disabled={busy || !Object.keys(changes).length || !typedOk(typed, pin)} onClick={save} data-testid="term-save">Save to Controller</button>
         </div>}
         {!canEdit && <div className="muted small">View only: editors with full access to this controller can change the point.</div>}
         {done && <div className="ok-txt small" data-testid="term-done">{done}</div>}

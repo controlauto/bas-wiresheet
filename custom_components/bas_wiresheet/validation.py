@@ -148,7 +148,8 @@ def _validate_sheet(
         issues.append(_issue("wires", "wires must be a list"))
         return issues
     imported = mode == "t3000" and isinstance(sheet.get("t3000"), dict) and sheet["t3000"].get("imported") is True
-    max_blocks, max_wires = (MAX_IMPORTED, MAX_IMPORTED * 3) if imported else (MAX_BLOCKS, MAX_WIRES)
+    # T3000 programs are limited by the controller's 2000-byte program (checked when compiling), not by the block count
+    max_blocks, max_wires = (MAX_IMPORTED, MAX_IMPORTED * 3) if mode == "t3000" else (MAX_BLOCKS, MAX_WIRES)
     if len(blocks) > max_blocks:
         issues.append(_issue("too_many_blocks", f"A sheet can have at most {max_blocks} blocks"))
     if len(wires) > max_wires:
@@ -176,7 +177,9 @@ def _validate_sheet(
         if not (_is_number(pos.get("x")) and _is_number(pos.get("y"))):
             issues.append(_issue("position", "Block position must have numeric x and y", block=bid))
         issues.extend(_validate_params(b, bdef, known_entities))
-        if b.get("type") in ("cb_unmapped", "cb_local_read", "cb_local_write") and not imported:
+        if b.get("type") in ("cb_local_read", "cb_local_write") and mode != "t3000":
+            issues.append(_issue("t3_block_mode", "Local variables exist only in T3000 programs", block=bid))
+        if b.get("type") == "cb_unmapped" and not imported:
             issues.append(_issue("t3_block_mode", "This block only exists on sheets generated from a program", block=bid))
         if b.get("type") in ("modbus_read", "modbus_write") and mode != "t3000":
             issues.append(_issue("t3_block_mode", f"{bdef['label']} runs on the controller: only allowed on T3000 program sheets", block=bid))

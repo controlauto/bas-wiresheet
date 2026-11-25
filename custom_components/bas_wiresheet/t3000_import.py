@@ -631,3 +631,40 @@ def parse_prog_file(data: bytes) -> list[dict]:
         out.append({"program": i + 1, "description": q[:21].split(b"\0")[0].decode("latin-1"), "label": q[21:30].split(b"\0")[0].decode("latin-1"),
                     "bytes": q[30] | q[31] << 8, "on": q[32] != 0, "code": code, "empty": not any(code)})
     return out
+
+
+EDIT_BLOCKERS = {"cb_unmapped": "a program line that has no block"}
+
+
+def make_editable(sheet: dict, *, new_id: str, name: str, work_vars: list[str]) -> tuple[dict | None, list[dict]]:
+    """Copy of a sheet generated from a controller program that can be edited and sent to the controller.
+    Returns (sheet, blockers). Blocks that only document the program (unmapped code, local variables) cannot be
+    compiled, so a sheet that has them is not converted: blockers name each of them."""
+    t3 = sheet.get("t3000") or {}
+    if sheet.get("mode") != "t3000" or not t3.get("imported"):
+        return None, [{"message": "Only sheets generated from a controller program need this"}]
+    blockers = [{"block": b["id"], "type": b["type"], "label": b.get("label") or b["id"], "message": f"{b.get('label') or b['id']}: {EDIT_BLOCKERS[b['type']]}"}
+                for b in sheet.get("blocks", []) if b.get("type") in EDIT_BLOCKERS]
+    if blockers:
+        return None, blockers
+    import copy
+    out = copy.deepcopy(sheet)
+    out["id"], out["name"] = new_id, name
+    out["t3000"] = {k: v for k, v in t3.items() if k not in ("imported", "timers", "logic")}
+    out["t3000"]["work_vars"] = list(work_vars)
+    out["t3000"]["work_locals"] = True  # intermediate values in program-local variables; only timers take VARs
+    out["description"] = (f"Editable copy of {sheet.get('name') or sheet.get('id')} (generated from T3000 program {t3.get('program_slot')} of controller "
+                          f"{t3.get('device_instance')}). Send to Controller replaces that program with the code compiled from this sheet.")
+    return out, []
+
+
+def free_vars(listings: list[str], sheet: dict) -> list[str]:
+    """VARs no program listing of the controller and no block of the sheet refers to, highest first (work variable pool)."""
+    used = set()
+    for text in listings:
+        used |= {int(n) for n in re.findall(r"\bVAR(\d+)\b", text or "")}
+    for b in sheet.get("blocks", []):
+        m = re.match(r"^VAR(\d+)$", str((b.get("params") or {}).get("point", "")).upper())
+        if m:
+            used.add(int(m.group(1)))
+    return [f"VAR{n}" for n in range(128, 0, -1) if n not in used]

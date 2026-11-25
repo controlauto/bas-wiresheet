@@ -40,6 +40,7 @@ from .const import (
 from . import t3000, t3000_alarms, t3000_bacnet, t3000_basic, t3000_import, t3000_points, t3000_policy, t3000_settings, t3000_snapshot, t3000_tables, t3000_toolchain
 from .controller_tools import AlarmWatch, SnapshotStore
 from .t3000_policy import make_guard
+from . import program_watch
 from .program_watch import ProgramWatch
 from .sheet_runner import SheetRunner
 from .nodered import NodeRedClient, NodeRedError
@@ -70,6 +71,7 @@ T3_DEVICE_SCHEMA = vol.Schema({
     vol.Optional("allow_editing_physical_outputs", default=False): cv.boolean,
     # IP controller: "192.0.2.10[:47808]". MS/TP controller behind a router: "router_ip[:port]/network:mac".
     vol.Optional("address"): vol.Match(r"^[0-9.]+(:\d+)?(/\d+:(\d+|0x[0-9a-fA-F]+))?$"),
+    vol.Optional("name"): cv.string,  # shown for controllers reached by address only
     # Explorer may write a value only to sandbox points on virtual ports of a device that enables this.
     vol.Optional("allow_point_writes", default=False): cv.boolean,
     # "full": every program slot and every point may be changed, physical outputs included. Safety points
@@ -89,6 +91,10 @@ T3000_SCHEMA = vol.Schema({vol.Optional("devices", default={}): {vol.Coerce(int)
                                                                                       vol.Optional("exclude_from_sheets", default=False): cv.boolean})],
                            # Nightly read of every readable controller's programs; changes made outside this panel are reported.
                            vol.Optional("program_watch", default=True): cv.boolean,
+                           # operator decision: no limits from this integration on the controller (no typed confirmations,
+                           # every point writable, code edits not checked against write rules). Identity checks, read-back
+                           # verification, backups and restore-on-failure stay.
+                           vol.Optional("unrestricted", default=False): cv.boolean,
                            vol.Optional("alarm_poll_s", default=60): vol.All(vol.Coerce(int), vol.Range(min=0, max=3600)),
                            vol.Optional("program_watch_time", default="02:30:00"): cv.time})
 
@@ -206,7 +212,7 @@ async def _async_setup_core(hass: HomeAssistant, conf: dict, config: ConfigType)
 
     def _alarm_devices() -> list[dict]:
         out = []
-        for d in t3000.list_devices(hass, conf.get("t3000", {})):
+        for d in t3000.list_devices(hass, hass.data[DOMAIN]["conf"].get("t3000", {})):  # current settings (UI changes apply at once)
             if (_t3_effective(hass, d["instance"]) or {}).get("allow_program_read"):
                 out.append(d)
         return out
@@ -216,6 +222,8 @@ async def _async_setup_core(hass: HomeAssistant, conf: dict, config: ConfigType)
 
     alarm_watch = AlarmWatch(hass, _alarm_devices, _alarm_run, repo.add_audit, conf.get("t3000", {}).get("alarm_poll_s", 60))
     data["alarm_watch"] = alarm_watch
+    if data.get("sensor_add"):  # the sensor platform was set up first
+        alarm_watch.add_entities = data["sensor_add"]
     @callback
     def _alarms_start(_event=None) -> None:
         alarm_watch.start()
@@ -255,7 +263,7 @@ async def _async_setup_core(hass: HomeAssistant, conf: dict, config: ConfigType)
         require_admin=False,
         config={"version": VERSION},
     )
-    for handler in (ws_catalog, ws_config_info, ws_list, ws_get, ws_validate, ws_save_draft, ws_import, ws_commit, ws_restore,
+    for handler in (ws_catalog, ws_config_info, ws_t3_make_editable, ws_t3_probe, ws_t3_add_direct, ws_list, ws_get, ws_validate, ws_save_draft, ws_import, ws_commit, ws_restore,
                     ws_deploy_preview, ws_deploy, ws_rollback, ws_target_status, ws_subscribe_live, ws_push_result,
                     ws_t3_devices, ws_t3_points, ws_t3_compile, ws_delete_sheet, ws_t3_program_list, ws_t3_program_read,
                     ws_t3_upload_plan, ws_t3_upload_apply, ws_t3_program_control, ws_t3_program_to_sheet, ws_t3_prog_file,
@@ -340,13 +348,147 @@ def ws_config_info(hass, connection, msg):
                     "nodered": bool(plain.get(CONF_NODERED_TEST))}})
 
 
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_make_editable", vol.Required("sheet_id"): str,
+                                  vol.Optional("work_vars", default=[]): vol.All([vol.All(str, vol.Upper, vol.Match(r"^VAR\d+(-\d+)?$"))], vol.Length(max=20))})
+@websocket_api.async_response
+async def ws_t3_make_editable(hass, connection, msg):
+    """Editable copy of a sheet generated from a controller program (the generated sheet stays as documentation).
+    Nothing is sent to a controller; the copy is compiled to show what Send to Controller would do."""
+    if not _require_editor(hass, connection, msg):
+        return
+    repo = _repo(hass)
+    try:
+        src = repo.get(msg["sheet_id"])["draft"]
+    except RepoError as err:
+        connection.send_error(msg["id"], "not_found", str(err))
+        return
+    existing = {s["id"] for s in repo.list()}
+    base = f"{msg['sheet_id']}-edit"[:60]
+    new_id, n = base, 2
+    while new_id in existing:
+        new_id, n = f"{base}-{n}", n + 1
+    work = msg["work_vars"]
+    picked_from_controller = False
+    if not work:
+        # automatic: VARs that no program on the controller uses (all 16 programs read now, read only)
+        instance = (src.get("t3000") or {}).get("device_instance")
+        try:
+            cfg = _t3_require(hass, instance)
+            progs = await _t3_run(hass, instance, cfg, program_watch._read_all(instance))
+            listings = await hass.async_add_executor_job(
+                lambda: [t3000_toolchain.decompile(code) for _status, code in progs if any(code)])
+        except (*T3_ERRORS, IndexError, struct.error) as err:
+            connection.send_error(msg["id"], "t3000", f"Could not read the controller programs to pick free work variables ({err}). Enter them instead.")
+            return
+        work, picked_from_controller = t3000_import.free_vars(listings, src), True
+    sheet, blockers = t3000_import.make_editable(src, new_id=new_id, name=f"{src.get('name') or src['id']} (editable)", work_vars=work)
+    if sheet is None:
+        connection.send_result(msg["id"], {"created": False, "blockers": blockers})
+        return
+    if picked_from_controller:  # keep only the work variables the compiled program really uses
+        guard0 = _t3_guard(hass, sheet["t3000"]["device_instance"])
+        trial = await hass.async_add_executor_job(t3000_basic.generate, sheet, guard0)
+        sheet["t3000"]["work_vars"] = list(trial.get("work_vars") or [])
+    try:
+        await repo.save_draft(sheet, _user_label(connection), create_only=True)
+    except RepoError as err:
+        connection.send_error(msg["id"], "invalid", str(err))
+        return
+    issues = validate_sheet(sheet, known_entities=_known_entities(hass))
+    compiled = {}
+    if not has_errors(issues):
+        devices = hass.data[DOMAIN]["conf"].get("t3000", {}).get("devices", {})
+        guard = _t3_guard(hass, sheet["t3000"]["device_instance"])
+        await _t3_fill_panel(hass, sheet)
+        compiled = await hass.async_add_executor_job(_t3_compile, sheet, devices, guard)
+    await repo.add_audit({"by": _user_label(connection), "action": "make_editable", "target": new_id, "ok": True,
+                          "detail": f"Editable copy of {msg['sheet_id']}"})
+    connection.send_result(msg["id"], {"created": True, "sheet_id": new_id, "issues": issues + list(compiled.get("issues") or []),
+                                       "bytes": compiled.get("length"), "writes": compiled.get("writes"), "work_vars": sheet["t3000"]["work_vars"],
+                                       "work_auto": picked_from_controller})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_probe", vol.Required("address"): vol.Match(r"^\d{1,3}(\.\d{1,3}){3}(:\d+)?$")})
+@websocket_api.async_response
+async def ws_t3_probe(hass, connection, msg):
+    """Read only: which TEMCO controller answers T3000 requests at this IP address (no router, no BACnet/IP entry needed)."""
+    if not _require_editor(hass, connection, msg):
+        return
+    host, _, port = msg["address"].partition(":")
+
+    def probe():
+        with t3000_bacnet.Client(host, int(port or 47808), timeout=4.0, retries=4, gap=0.45) as c:
+            inst = c.identify()
+            try:
+                name = t3000_settings.decode(t3000_settings.read_raw(c)).get("panel_name") or ""
+            except (t3000_bacnet.BacnetError, IndexError, struct.error):
+                name = ""
+            return inst, name
+
+    try:
+        inst, name = await hass.async_add_executor_job(probe)
+    except (t3000_bacnet.BacnetError, OSError) as err:
+        connection.send_error(msg["id"], "t3000", f"No TEMCO controller answered at {msg['address']}: {err}")
+        return
+    known = inst in (hass.data[DOMAIN]["conf"].get("t3000", {}).get("devices") or {})
+    in_ha = any(d["instance"] == inst and not d.get("direct") for d in t3000.list_devices(hass, hass.data[DOMAIN]["conf"].get("t3000", {})))
+    connection.send_result(msg["id"], {"instance": inst, "panel_name": name, "configured": known, "in_bacnet_integration": in_ha,
+                                       "ui_config": not hass.data.get(f"{DOMAIN}_yaml")})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_add_direct", vol.Required("address"): vol.Match(r"^\d{1,3}(\.\d{1,3}){3}(:\d+)?$"),
+                                  vol.Required("instance"): int, vol.Optional("model", default=""): vol.In(["", *t3000.MODEL_PROFILES]),
+                                  vol.Optional("name", default=""): str})
+@websocket_api.async_response
+async def ws_t3_add_direct(hass, connection, msg):
+    """Add a controller reached by IP address to the UI configuration (identity checked first)."""
+    if not _require_editor(hass, connection, msg):
+        return
+    if hass.data.get(f"{DOMAIN}_yaml"):
+        connection.send_error(msg["id"], "not_allowed", "The configuration is in YAML: add the controller under t3000: devices with its address")
+        return
+    entries = hass.config_entries.async_entries(DOMAIN)
+    if not entries:
+        connection.send_error(msg["id"], "not_found", "BAS Wire Sheet has no UI configuration entry")
+        return
+    host, _, port = msg["address"].partition(":")
+
+    def check():
+        with t3000_bacnet.Client(host, int(port or 47808), timeout=4.0, retries=4, gap=0.45) as c:
+            return c.identify()
+
+    try:
+        got = await hass.async_add_executor_job(check)
+    except (t3000_bacnet.BacnetError, OSError) as err:
+        connection.send_error(msg["id"], "t3000", f"No reply from {msg['address']}: {err}")
+        return
+    if got != msg["instance"]:
+        connection.send_error(msg["id"], "t3000", f"The controller at {msg['address']} is device {got}, not {msg['instance']}")
+        return
+    entry = entries[0]
+    opts = dict(entry.options)
+    devices = {k: dict(v) for k, v in (opts.get("devices") or {}).items()}
+    dev = devices.get(str(got), {"access": "restricted", "allow_program_read": True, "allow_point_writes": False, "program_write_slots": "",
+                                 "sandbox": "", "locked": ""})
+    dev.update({"address": msg["address"]})
+    if msg["model"]:
+        dev["model"] = msg["model"]
+    if msg["name"].strip():
+        dev["name"] = msg["name"].strip()
+    devices[str(got)] = dev
+    hass.config_entries.async_update_entry(entry, options={**opts, "devices": devices})
+    await _repo(hass).add_audit({"by": _user_label(connection), "action": "controller_added", "target": f"t3000:{got}", "ok": True,
+                                 "detail": f"Controller {got} added by address {msg['address']}"})
+    connection.send_result(msg["id"], {"added": True, "instance": got})
+
+
 @websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/catalog"})
 @websocket_api.async_response
 async def ws_catalog(hass, connection, msg):
     catalog = await hass.async_add_executor_job(load_catalog)
     targets = [{"id": k, "name": c.name} for k, c in hass.data[DOMAIN]["nodered"].items()]
     connection.send_result(msg["id"], {
-        "catalog": catalog, "role": _role(hass, connection.user), "version": VERSION,
+        "catalog": catalog, "role": _role(hass, connection.user), "version": VERSION, "unrestricted": _unrestricted(hass),
         "runtime_url": f"{STATIC_URL}/runtime/runtime.js", "targets": targets,
         "production": {"available": False, "reason": "Production publish is locked pending explicit approval"},
     })
@@ -492,11 +634,20 @@ def _t3_caps(cfg: dict | None) -> dict:
             "point_writes": bool(cfg.get("allow_point_writes")), "full": cfg.get("access") == "full"}
 
 
+def _unrestricted(hass) -> bool:
+    return bool(hass.data[DOMAIN]["conf"].get("t3000", {}).get("unrestricted"))
+
+
+def _confirmed(hass, given: str | None, expected: str) -> bool:
+    """Typed confirmation, unless the operator turned the integration's restrictions off."""
+    return _unrestricted(hass) or (given or "").strip().upper() == expected.upper()
+
+
 def _t3_effective(hass, instance: int) -> dict | None:
     """Device access after applying full access (per device, or to every controller with full_access_all_devices)."""
     t3 = hass.data[DOMAIN]["conf"].get("t3000", {})
     cfg = t3.get("devices", {}).get(instance)
-    all_full = bool(t3.get("full_access_all_devices")) and _is_temco(hass, instance)
+    all_full = bool(t3.get("full_access_all_devices") or t3.get("unrestricted")) and _is_temco(hass, instance)
     if cfg is None and not all_full:
         return None
     cfg = dict(cfg or {})
@@ -508,6 +659,9 @@ def _t3_effective(hass, instance: int) -> dict | None:
 
 def _is_temco(hass, instance: int) -> bool:
     """T3000 access only applies to TEMCO controllers (not UPS units or other BACnet devices)."""
+    dev = (hass.data[DOMAIN]["conf"].get("t3000", {}).get("devices") or {}).get(instance)
+    if dev and dev.get("address"):
+        return True  # configured by address: the operator says it is a TEMCO controller (checked by identity on every request)
     for d in t3000.list_devices(hass, {}, include_all=True):
         if d["instance"] == instance:
             return t3000.is_temco(d.get("manufacturer"), d.get("reported_model"))
@@ -515,7 +669,7 @@ def _is_temco(hass, instance: int) -> bool:
 
 
 def _watch_devices(hass) -> list[int]:
-    out = [d["instance"] for d in t3000.list_devices(hass, {}) if (_t3_effective(hass, d["instance"]) or {}).get("allow_program_read")]
+    out = [d["instance"] for d in t3000.list_devices(hass, hass.data[DOMAIN]["conf"].get("t3000", {})) if (_t3_effective(hass, d["instance"]) or {}).get("allow_program_read")]
     return sorted(set(out))
 
 
@@ -682,7 +836,7 @@ async def ws_t3_point_config(hass, connection, msg):
 
 @websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_point_config_write", vol.Required("instance"): int,
                                   vol.Required("category"): vol.In(["IN", "OUT", "VAR"]), vol.Required("index"): vol.All(int, vol.Range(min=1, max=128)),
-                                  vol.Required("changes"): dict, vol.Required("confirm"): str})
+                                  vol.Required("changes"): dict, vol.Optional("confirm", default=""): str})
 @websocket_api.async_response
 async def ws_t3_point_config_write(hass, connection, msg):
     """Change a point's description, label, auto/manual, digital/analog or units on the controller (read back to verify)."""
@@ -694,13 +848,13 @@ async def ws_t3_point_config_write(hass, connection, msg):
     if cfg.get("access") != "full":
         connection.send_error(msg["id"], "not_allowed", f"Point configuration can be changed only with full access (device {instance})")
         return
-    if msg["confirm"].strip().upper() != name:
+    if not _confirmed(hass, msg.get("confirm"), name):
         connection.send_error(msg["id"], "not_allowed", f"Type {name} to confirm")
         return
     t3conf = hass.data[DOMAIN]["conf"].get("t3000", {})
     texts = _t3_point_texts(hass, instance)
     status, reason = t3000_policy.protection(t3000_policy.device_configs(t3conf).get(instance), kind, index, f"{name} {texts.get(name, '')}",
-                                             bool(t3conf.get("unlock_protected_points")))
+                                             bool(t3conf.get("unlock_protected_points") or t3conf.get("unrestricted")))
     if status == "locked":
         connection.send_error(msg["id"], "not_allowed", f"{name} is locked ({reason})")
         return
@@ -759,12 +913,15 @@ async def ws_t3_settings(hass, connection, msg):
     except (*T3_ERRORS, IndexError, struct.error) as err:
         connection.send_error(msg["id"], "t3000", str(err))
         return
+    cfg = _t3_effective(hass, msg["instance"]) or {}
+    if cfg.get("model") == "TSTAT10" and cfg.get("address"):
+        data = {**data, "ip": cfg["address"].split("/")[0].split(":")[0]}  # the Tstat10 settings block keeps its IP elsewhere
     connection.send_result(msg["id"], {**data, "modes": t3000_settings.EDITABLE_MODES, "bauds": sorted(t3000_settings.BAUD_RATES)})
 
 
 @websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_port_set", vol.Required("instance"): int,
                                   vol.Required("port"): vol.In(t3000_settings.PORTS), vol.Optional("mode"): int, vol.Optional("baud"): int,
-                                  vol.Required("confirm"): str})
+                                  vol.Optional("confirm", default=""): str})
 @websocket_api.async_response
 async def ws_t3_port_set(hass, connection, msg):
     """Change one RS-485 port's mode (Unused, MS/TP, Modbus Slave, Modbus Master) or baud rate. Full access, typed confirmation."""
@@ -775,7 +932,7 @@ async def ws_t3_port_set(hass, connection, msg):
     if cfg.get("access") != "full":
         connection.send_error(msg["id"], "not_allowed", f"Ports can be changed only with full access (device {instance})")
         return
-    if msg["confirm"].strip().upper() != port:
+    if not _confirmed(hass, msg.get("confirm"), port):
         connection.send_error(msg["id"], "not_allowed", f"Type {port} to confirm")
         return
     try:
@@ -903,7 +1060,7 @@ async def ws_t3_snapshot_update(hass, connection, msg):
 
 
 @websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_snapshot_restore", vol.Required("instance"): int, vol.Required("snapshot"): str,
-                                  vol.Required("items"): vol.All([str], vol.Length(min=1, max=400)), vol.Required("confirm"): str})
+                                  vol.Required("items"): vol.All([str], vol.Length(min=1, max=400)), vol.Optional("confirm", default=""): str})
 @websocket_api.async_response
 async def ws_t3_snapshot_restore(hass, connection, msg):
     """Write selected items of a backup back to the controller. A fresh full backup is taken first."""
@@ -914,7 +1071,7 @@ async def ws_t3_snapshot_restore(hass, connection, msg):
     if cfg.get("access") != "full":
         connection.send_error(msg["id"], "not_allowed", f"Restoring needs full access (device {instance})")
         return
-    if msg["confirm"].strip().upper() != "RESTORE":
+    if not _confirmed(hass, msg.get("confirm"), "RESTORE"):
         connection.send_error(msg["id"], "not_allowed", "Type RESTORE to confirm")
         return
     store = _snap(hass)
@@ -932,7 +1089,7 @@ async def ws_t3_snapshot_restore(hass, connection, msg):
             connection.send_error(msg["id"], "invalid", f"Cannot restore {item}")
             return
         if kind in ("OUT", "IN", "VAR"):
-            status, reason = t3000_policy.protection(devcfg, kind, int(num), f"{kind}{num} {texts.get(f'{kind}{num}', '')}", bool(t3conf.get("unlock_protected_points")))
+            status, reason = t3000_policy.protection(devcfg, kind, int(num), f"{kind}{num} {texts.get(f'{kind}{num}', '')}", bool(t3conf.get("unlock_protected_points") or t3conf.get("unrestricted")))
             if status == "locked":
                 connection.send_error(msg["id"], "not_allowed", f"{kind}{num} is locked ({reason})")
                 return
@@ -1108,7 +1265,7 @@ async def ws_t3_schedule_get(hass, connection, msg):
 
 @websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_schedule_set", vol.Required("instance"): int,
                                   vol.Required("kind"): vol.In(["weekly", "annual"]), vol.Required("index"): vol.All(int, vol.Range(min=1, max=8)),
-                                  vol.Required("changes"): dict, vol.Required("confirm"): str})
+                                  vol.Required("changes"): dict, vol.Optional("confirm", default=""): str})
 @websocket_api.async_response
 async def ws_t3_schedule_set(hass, connection, msg):
     """Change a weekly or annual routine on the controller (read back to verify). Full access only."""
@@ -1120,7 +1277,7 @@ async def ws_t3_schedule_set(hass, connection, msg):
     if cfg.get("access") != "full":
         connection.send_error(msg["id"], "not_allowed", f"Schedules can be changed only with full access (device {instance})")
         return
-    if msg["confirm"].strip().upper() != name:
+    if not _confirmed(hass, msg.get("confirm"), name):
         connection.send_error(msg["id"], "not_allowed", f"Type {name} to confirm")
         return
     year = _local_year(hass)
@@ -1161,7 +1318,7 @@ async def ws_t3_pids(hass, connection, msg):
 
 @websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_pid_set", vol.Required("instance"): int,
                                   vol.Required("index"): vol.All(int, vol.Range(min=1, max=16)), vol.Required("changes"): dict,
-                                  vol.Required("confirm"): str})
+                                  vol.Optional("confirm", default=""): str})
 @websocket_api.async_response
 async def ws_t3_pid_set(hass, connection, msg):
     """Tune a PID controller on the controller (read back to verify). Full access only."""
@@ -1173,7 +1330,7 @@ async def ws_t3_pid_set(hass, connection, msg):
     if cfg.get("access") != "full":
         connection.send_error(msg["id"], "not_allowed", f"PID controllers can be changed only with full access (device {instance})")
         return
-    if msg["confirm"].strip().upper() != name:
+    if not _confirmed(hass, msg.get("confirm"), name):
         connection.send_error(msg["id"], "not_allowed", f"Type {name} to confirm")
         return
     try:
@@ -1213,6 +1370,8 @@ async def ws_program_watch_run(hass, connection, msg):
 
 
 def _t3_guard(hass, instance: int):
+    if _unrestricted(hass) and _t3_effective(hass, instance):
+        return lambda kind, index: (True, "")  # every point writable
     cfg = _t3_effective(hass, instance) or {}
     devices = hass.data[DOMAIN]["conf"].get("t3000", {}).get("devices", {})
     if cfg.get("access") == "full":
@@ -1269,8 +1428,12 @@ async def _t3_run(hass, instance: int, cfg: dict, fn):
     locks = hass.data[DOMAIN].setdefault("t3_locks", {})
     lock = locks.setdefault(instance, asyncio.Lock())
 
+    # Tstat10-class controllers answer slowly (seen on a Tstat10 over Wi-Fi): wider gaps, more patience
+    slow = (cfg.get("model") or "") == "TSTAT10"
+
     def job():
-        with t3000_bacnet.Client(host, port, gap=0.3, dnet=dnet, dadr=dadr) as client:
+        with t3000_bacnet.Client(host, port, timeout=4.0 if slow else 3.0, retries=4 if slow else 3, gap=0.45 if slow else 0.3,
+                                 dnet=dnet, dadr=dadr) as client:
             return fn(client)
 
     async with lock:
@@ -1316,7 +1479,7 @@ async def ws_t3_program_state(hass, connection, msg):
 
 @websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_point_write", vol.Required("device_id"): str,
                                   vol.Required("entity_id"): str, vol.Required("value"): vol.Coerce(float),
-                                  vol.Required("confirm"): str})
+                                  vol.Optional("confirm", default=""): str})
 @websocket_api.async_response
 async def ws_t3_point_write(hass, connection, msg):
     """Write one value to a controller point through the BACnet integration's own entity.
@@ -1339,11 +1502,12 @@ async def ws_t3_point_write(hass, connection, msg):
     name = f"{row['category']}{row['index']}" if row else "?"
     domain = msg["entity_id"].split(".")[0]
     refuse = None
-    if not cfg.get("allow_point_writes"):
+    free = _unrestricted(hass)
+    if not free and not cfg.get("allow_point_writes"):
         refuse = f"Point writes are not enabled for device {instance} (allow_point_writes)"
     elif row is None:
         refuse = "This entity is not a point of the selected controller"
-    elif row["protection"] == "locked":
+    elif not free and row["protection"] == "locked":
         refuse = f"{name} is locked ({row['protection_reason']})"
     elif not full and row["protection"] != "sandbox":
         refuse = f"{name} is not a sandbox point"
@@ -1355,7 +1519,7 @@ async def ws_t3_point_write(hass, connection, msg):
         refuse = f"{name} is on/off: write 1 or 0"
     elif not -1000000 <= msg["value"] <= 1000000:
         refuse = "Value out of range"
-    elif msg["confirm"].strip().upper() != name:
+    elif not _confirmed(hass, msg.get("confirm"), name):
         refuse = f"Type {name} to confirm"
     if refuse:
         connection.send_error(msg["id"], "not_allowed", refuse)
@@ -1631,12 +1795,14 @@ def _site_locked(text: str) -> str | None:
     return t3000_policy.site_match(text)
 
 
-def _t3_review_change(old: bytes, source: str, guard, status: dict | None = None, allow_physical: bool = False, unlocked: bool = False) -> dict:
+def _t3_review_change(old: bytes, source: str, guard, status: dict | None = None, allow_physical: bool = False, unlocked: bool = False,
+                      unrestricted: bool = False) -> dict:
     """Compile an edited program and decide whether it may replace the current one. Runs in the executor."""
     old_listing = t3000_toolchain.decompile(old)
     identity = " ".join(str((status or {}).get(k, "")) for k in ("description", "label"))
     hit = _site_locked(identity) or _site_locked(old_listing) or _site_locked(source)
-    if not unlocked and hit:
+    warnings: list[str] = []
+    if not unlocked and not unrestricted and hit:
         raise t3000_bacnet.UploadRefused(f"This program belongs to locked equipment ({hit}): its logic is locked")
     if not _listing_is_safe(old, old_listing):
         raise t3000_bacnet.UploadRefused("T3000's listing of this program does not compile back to the same logic, so it cannot be edited safely")
@@ -1648,19 +1814,22 @@ def _t3_review_change(old: bytes, source: str, guard, status: dict | None = None
     code = t3000_toolchain.compile_source(text)
     listing = t3000_toolchain.decompile(code)
     if t3000_import.logic_digest(t3000_toolchain.compile_source(listing)) != t3000_import.logic_digest(code):
-        raise t3000_bacnet.UploadRefused("T3000's listing of the new code changes its logic (grouping in AND/OR or a divisor). Use an intermediate variable")
+        msg_ = "T3000's listing of the new code changes its logic (grouping in AND/OR or a divisor). Use an intermediate variable"
+        if not unrestricted:
+            raise t3000_bacnet.UploadRefused(msg_)
+        warnings.append(msg_ + ": if this program is opened and saved in T3000, its logic changes")
     before, after = t3000_import.program_targets(old, old_listing), t3000_import.program_targets(code, listing)
     known = {re.sub(r"^\d+\s*", "", l).strip() for l in old_listing.splitlines()}
     unknown = [l for l in after["unknown"] if l not in known]
-    if unknown:
+    if unknown and not unrestricted:
         raise t3000_bacnet.UploadRefused("Cannot verify what this new line writes: " + unknown[0])
     added = sorted(set(after["targets"]) - set(before["targets"]))
     for point in added:
         parsed = t3000_basic.parse_point(point)
         allowed, reason = guard(*parsed) if parsed else (False, "unknown point")
-        if not allowed:
+        if not allowed and not unrestricted:
             raise t3000_bacnet.UploadRefused(f"The new code would write {point}: {reason}")
-    if not allow_physical:
+    if not allow_physical and not unrestricted:
         for point in after["targets"]:
             parsed = t3000_basic.parse_point(point)
             allowed, reason = guard(*parsed) if parsed else (False, "unknown point")
@@ -1668,7 +1837,8 @@ def _t3_review_change(old: bytes, source: str, guard, status: dict | None = None
                 raise t3000_bacnet.UploadRefused(f"This program writes {point} ({reason}). Editing it needs allow_editing_physical_outputs for this controller")
     diff = [l for l in difflib.unified_diff(old_listing.splitlines(), listing.splitlines(), "current", "new", lineterm="", n=1)][2:]
     return {"code": code, "listing": listing, "diff": diff, "added_writes": added,
-            "removed_writes": sorted(set(before["targets"]) - set(after["targets"])), "writes": after["targets"], "changed": t3000_import.logic_digest(code) != t3000_import.logic_digest(old)}
+            "removed_writes": sorted(set(before["targets"]) - set(after["targets"])), "writes": after["targets"], "changed": t3000_import.logic_digest(code) != t3000_import.logic_digest(old),
+            "warnings": warnings}
 
 
 @websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_code_check", vol.Required("instance"): int,
@@ -1691,7 +1861,8 @@ async def ws_t3_code_check(hass, connection, msg):
                 raise t3000_bacnet.UploadRefused(f"Program {slot} is empty; use a T3000 sheet and Load Program")
             status = t3000_bacnet.describe_status(client.read_point(slot - 1))
             review = _t3_review_change(current, msg["source"], guard, status, cfg.get("allow_editing_physical_outputs", False),
-                                       bool(hass.data[DOMAIN]["conf"].get("t3000", {}).get("unlock_protected_points")))
+                                       bool(hass.data[DOMAIN]["conf"].get("t3000", {}).get("unlock_protected_points")),
+                                       unrestricted=_unrestricted(hass))
             if not review["changed"]:
                 return review, None, None
             plan, backup = t3000_bacnet.plan_replace(client, instance, slot, cfg["program_write_slots"], review["code"], t3000_import.logic_digest)
@@ -1712,7 +1883,7 @@ async def ws_t3_code_check(hass, connection, msg):
     connection.send_result(msg["id"], out)
 
 
-@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_code_apply", vol.Required("token"): str, vol.Required("confirm"): str})
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_code_apply", vol.Required("token"): str, vol.Optional("confirm", default=""): str})
 @websocket_api.async_response
 async def ws_t3_code_apply(hass, connection, msg):
     """Replace a program on the controller. The previous version is stored first."""
@@ -1725,7 +1896,7 @@ async def ws_t3_code_apply(hass, connection, msg):
         connection.send_error(msg["id"], "plan_required", "Check expired, already used or owned by another user; check again")
         return
     expected = f"PROGRAM {p['slot']}"
-    if msg["confirm"].strip().upper() != expected:
+    if not _confirmed(hass, msg.get("confirm"), expected):
         connection.send_error(msg["id"], "confirm", f"Type {expected} to confirm")
         return
     plans.pop(msg["token"], None)
@@ -1750,14 +1921,14 @@ async def ws_t3_code_apply(hass, connection, msg):
 
 
 @websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_code_restore", vol.Required("instance"): int,
-                                  vol.Required("slot"): vol.All(int, vol.Range(min=1, max=16)), vol.Required("confirm"): str})
+                                  vol.Required("slot"): vol.All(int, vol.Range(min=1, max=16)), vol.Optional("confirm", default=""): str})
 @websocket_api.async_response
 async def ws_t3_code_restore(hass, connection, msg):
     """Put back the version stored before the last update."""
     if not _require_editor(hass, connection, msg):
         return
     instance, slot = msg["instance"], msg["slot"]
-    if msg["confirm"].strip().upper() != f"PROGRAM {slot}":
+    if not _confirmed(hass, msg.get("confirm"), f"PROGRAM {slot}"):
         connection.send_error(msg["id"], "confirm", f"Type PROGRAM {slot} to confirm")
         return
     target = _t3_target(instance, slot)

@@ -1,3 +1,4 @@
+import { typedOk } from "./confirm.js";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { fmtAge, fmtTime, FRESH_CLASS } from "./model.js";
 import { Schedules, PidLoops, Ports, Alarms, Monitors, Backups } from "./ExplorerTables.jsx";
@@ -134,12 +135,12 @@ function CodeEditor({ ws, device, view, onDone }) {
         <div className="kv"><span>No Longer Written</span><b className="mono">{check.removed_writes.join(", ") || "None"}</b></div>
         <div className="kv"><span>Program State</span><b>{check.running ? "Running" : "Stopped"}</b></div>
         {check.running && <div className="errtxt">The program stops for a few seconds while it is written and outputs hold their last value. Its timers and local variables restart.</div>}
-        <label className="field"><span>Type {need} to confirm</span><input value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="t3-code-confirm" /></label>
-        <button className="btn primary" disabled={busy || typed.trim().toUpperCase() !== need} onClick={apply} data-testid="t3-code-apply">Update Controller</button>
+        <label className="field"><span>Type {need} to confirm</span><input data-confirm="1" value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="t3-code-confirm" /></label>
+        <button className="btn primary" disabled={busy || !typedOk(typed, need)} onClick={apply} data-testid="t3-code-apply">Update Controller</button>
       </div>}
       {!check && done && <div style={{ marginTop: 8 }}>
-        <label className="field"><span>Type {need} to restore the previous version</span><input value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="t3-code-restore-confirm" /></label>
-        <button className="btn danger" disabled={busy || typed.trim().toUpperCase() !== need} onClick={restore} data-testid="t3-code-restore">Restore Previous Version</button>
+        <label className="field"><span>Type {need} to restore the previous version</span><input data-confirm="1" value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="t3-code-restore-confirm" /></label>
+        <button className="btn danger" disabled={busy || !typedOk(typed, need)} onClick={restore} data-testid="t3-code-restore">Restore Previous Version</button>
       </div>}
       {busy && <div className="muted">Working with the controller…</div>}
     </div>
@@ -159,13 +160,13 @@ function PointWrite({ ws, deviceId, point, onClose, onDone }) {
     catch (e) { setErr(e.message); }
     setBusy(false);
   };
-  const ok = value !== "" && Number.isFinite(Number(value)) && typed.trim().toUpperCase() === name;
+  const ok = value !== "" && Number.isFinite(Number(value)) && typedOk(typed, name);
   return (
     <tr className="prot-sandbox" data-testid={`t3-write-row-${name}`}><td colSpan={12}>
       <div className="row" style={{ gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <b>Write {name}</b><span className="muted small"> · current {point.value}{point.entity_id.startsWith("switch.") ? " · write 1 (on) or 0 (off)" : ""}</span>
         <label className="field" style={{ margin: 0 }}><span>New value</span><input className="mono" style={{ width: 110 }} value={value} onChange={(e) => setValue(e.target.value)} data-testid="t3-write-value" /></label>
-        <label className="field" style={{ margin: 0 }}><span>Type {name} to confirm</span><input className="mono" style={{ width: 110 }} value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="t3-write-confirm" /></label>
+        <label className="field" style={{ margin: 0 }}><span>Type {name} to confirm</span><input className="mono" style={{ width: 110 }} data-confirm="1" value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="t3-write-confirm" /></label>
         <button className="btn primary" disabled={!ok || busy} onClick={write} data-testid="t3-write-apply">Write Value</button>
         <button className="btn" onClick={onClose}>Close</button>
         {busy && <span className="muted">Writing…</span>}
@@ -217,8 +218,8 @@ function PointConfig({ ws, instance, point, onClose, onDone }) {
             </select></label>
             {point.category === "IN" && edit.digital_analog === "analog" && <label className="field" style={{ margin: 0 }}><span>Calibration (±)</span><input type="number" step="0.1" style={{ width: 80 }} value={edit.calibration ?? 0} onChange={(e) => setEdit({ ...edit, calibration: e.target.value === "" ? 0 : Number(e.target.value) })} data-testid="t3-cfg-cal" /></label>}
           </>}
-          <label className="field" style={{ margin: 0 }}><span>Type {name} to confirm</span><input className="mono" style={{ width: 90 }} value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="t3-cfg-confirm" /></label>
-          <button className="btn primary" disabled={busy || !Object.keys(changes).length || typed.trim().toUpperCase() !== name} onClick={save} data-testid="t3-cfg-save">Save to Controller</button>
+          <label className="field" style={{ margin: 0 }}><span>Type {name} to confirm</span><input className="mono" style={{ width: 90 }} data-confirm="1" value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="t3-cfg-confirm" /></label>
+          <button className="btn primary" disabled={busy || !Object.keys(changes).length || !typedOk(typed, name)} onClick={save} data-testid="t3-cfg-save">Save to Controller</button>
           <button className="btn" onClick={onClose}>Close</button>
         </div>}
         {err && <div className="errtxt small" data-testid="t3-cfg-error">{err}</div>}
@@ -256,7 +257,7 @@ function PointControl({ ws, instance, point, onClose, onDone }) {
     } catch (e) { setErr(e.message); }
     setBusy(false);
   };
-  const ok = typed.trim().toUpperCase() === name && !busy;
+  const ok = typedOk(typed, name) && !busy;
   return (
     <tr className="prot-normal" data-testid={`t3-control-row-${name}`}><td colSpan={12}>
       <div className="xp-config">
@@ -267,7 +268,7 @@ function PointControl({ ws, instance, point, onClose, onDone }) {
           {am === "manual" && (digital
             ? <div className="seg" data-testid="t3-ctl-onoff">{[["1", "ON"], ["0", "OFF"]].map(([v, t]) => <button key={v} className={`seg-b ${val === v ? "on" : ""}`} onClick={() => setVal(v)} data-testid={`t3-ctl-${t.toLowerCase()}`}>{t}</button>)}</div>
             : <label className="field" style={{ margin: 0 }}><span>Value{point.units ? ` (${point.units})` : ""}</span><input className="mono" type="number" step="any" style={{ width: 110 }} value={val} onChange={(e) => setVal(e.target.value)} data-testid="t3-ctl-value" /></label>)}
-          <label className="field" style={{ margin: 0 }}><span>Type {name} to confirm</span><input className="mono" style={{ width: 90 }} value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="t3-ctl-confirm" /></label>
+          <label className="field" style={{ margin: 0 }}><span>Type {name} to confirm</span><input className="mono" style={{ width: 90 }} data-confirm="1" value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="t3-ctl-confirm" /></label>
           <button className="btn primary" disabled={!ok || (am === "manual" && (val === "" || Number.isNaN(Number(val))))} onClick={() => apply(am, val)} data-testid="t3-ctl-apply">{am === "auto" ? "Release to Auto" : "Apply"}</button>
           <button className="btn" onClick={onClose}>Close</button>
         </div>}
@@ -423,12 +424,16 @@ export default function Explorer({ hass, role, onOpenSheet }) {
   const [controlling, setControlling] = useState(null);
   const [discover, setDiscover] = useState(false);
   const [direct, setDirect] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [devTick, setDevTick] = useState(0);
 
   useEffect(() => {
     ws({ type: "bas_wiresheet/t3_devices" })
-      .then((r) => { setDevices(r.devices); if (r.devices.length) setSel(r.devices[0].device_id); })
+      .then((r) => { setDevices(r.devices); if (r.devices.length && !r.devices.some((d) => d.device_id === sel)) setSel(r.devices[0].device_id); })
       .catch((e) => setErr(e.message));
-  }, []); // eslint-disable-line
+  }, [devTick]); // eslint-disable-line
+  // controllers reached by IP only have no Home Assistant entities: show their own point tables
+  useEffect(() => { const d = (devices || []).find((x) => x.device_id === sel); if (d && d.direct) setDirect(true); }, [sel, devices]);
 
   useEffect(() => {
     if (!sel) return undefined;
@@ -470,11 +475,14 @@ export default function Explorer({ hass, role, onOpenSheet }) {
           <div key={d.device_id} className={`xp-dev ${sel === d.device_id ? "on" : ""} ${d.entry.disabled ? "dis" : ""}`} onClick={() => setSel(d.device_id)} data-testid={`t3-dev-${d.instance}`}>
             <div className="xp-dev-name">{d.name}</div>
             <div className="muted small mono">BACnet {d.instance}</div>
-            <div className="small">{d.model || <span className="muted">Model not configured</span>}{d.entry.disabled ? " · Disabled in HA" : ""}</div>
+            <div className="small">{d.model || <span className="muted">Model not configured</span>}{d.entry.disabled ? " · Disabled in HA" : ""}{d.direct ? <span className="badge comm" style={{ marginLeft: 6 }} title={`Reached directly at ${d.entry.device_address}`}>IP</span> : null}</div>
           </div>
         ))}
-        <div className="pad">{role === "editor" && <button className="btn sm" onClick={() => setDiscover(true)} data-testid="t3-discover">Discover Devices</button>}</div>
-        <div className="muted small pad">TEMCO controllers from the BACnet/IP integration (BACnet/IP and MS/TP through a router). Discover Devices lists every TEMCO controller that answers on the network.</div>
+        <div className="pad row" style={{ gap: 6 }}>{role === "editor" && <>
+          <button className="btn sm" onClick={() => setDiscover(true)} data-testid="t3-discover">Discover Devices</button>
+          <button className="btn sm" onClick={() => setAdding(!adding)} data-testid="t3-add-ip">Add by IP</button></>}</div>
+        {adding && <AddByIp ws={ws} onAdded={(inst) => { setAdding(false); setDevTick((x) => x + 1); setSel(null); setTimeout(() => setDevTick((x) => x + 1), 1500); }} />}
+        <div className="muted small pad">TEMCO controllers from the BACnet/IP integration (BACnet/IP and MS/TP through a router), and controllers added by IP address (no router or BACnet/IP entry needed, for example a Tstat10 on Wi-Fi). Discover Devices lists every TEMCO controller that answers on the network.</div>
       </aside>
       <section className="xp-main">
         <div className="xp-head">
@@ -483,10 +491,11 @@ export default function Explorer({ hass, role, onOpenSheet }) {
               <div className="xp-title">{dev.name} <span className="mono muted">· BACnet {dev.instance}</span></div>
               {canWrite ? (fullAccess ? <span className="badge role editor" title="Every point except safety and Commissioning Pending points" data-testid="t3-full-access">Full Access</span> : <span className="badge role editor" title="Only Test Sandbox points on virtual ports">Sandbox Writes Enabled</span>) : <span className="badge role operator">Read Only</span>}
               <span className="muted small">Model: <b>{dev.model || "Not configured"}</b>{dev.model_source ? ` (${dev.model_source})` : ""}</span>
+              {dev.direct ? <span className="chip unk" data-testid="t3-direct-badge">Direct by IP {dev.entry.device_address} · not in the BACnet/IP integration · values from the controller tables</span> : <>
               <span className={`chip ${hbAge !== null && hbAge <= dev.stale_after_s * 1000 ? "ok" : hbAge === null ? "unk" : "bad"}`} title={dev.heartbeat.entity_id || ""}>
                 {hbAge === null ? "No Poll Heartbeat" : `Last Poll ${fmtAge(hbAge)} ago`}
               </span>
-              <span className="muted small">Poll every {dev.entry.polling_interval || "?"} s · Stale after {dev.stale_after_s} s</span>
+              <span className="muted small">Poll every {dev.entry.polling_interval || "?"} s · Stale after {dev.stale_after_s} s</span></>}
             </>
           ) : <div className="xp-title muted">Select a device</div>}
         </div>
@@ -549,6 +558,46 @@ export default function Explorer({ hass, role, onOpenSheet }) {
           Port types follow T3000 (GetOutputType). Locked points can never be written; Test Sandbox points are the approved test points for the write phase.
         </div>
       </section>
+    </div>
+  );
+}
+
+/* Add a TEMCO controller by IP address: no router and no BACnet/IP integration entry needed (identity checked first). */
+function AddByIp({ ws, onAdded }) {
+  const [addr, setAddr] = useState("");
+  const [probe, setProbe] = useState(null);
+  const [model, setModel] = useState("");
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const run = async () => {
+    setBusy(true); setErr(null); setProbe(null);
+    try { const r = await ws({ type: "bas_wiresheet/t3_probe", address: addr.trim() }); setProbe(r); setName(r.panel_name || ""); if (/T3-OEM|TSTAT/i.test(r.panel_name || "")) setModel("TSTAT10"); }
+    catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+  const add = async () => {
+    setBusy(true); setErr(null);
+    try { await ws({ type: "bas_wiresheet/t3_add_direct", address: addr.trim(), instance: probe.instance, model, name }); onAdded(probe.instance); }
+    catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+  return (
+    <div className="pad xp-add" data-testid="t3-add-panel">
+      <label className="field"><span>Controller IP address</span>
+        <input className="mono" placeholder="192.0.2.9" value={addr} onChange={(e) => setAddr(e.target.value)} data-testid="t3-add-address" /></label>
+      <button className="btn sm" disabled={busy || !/^\d{1,3}(\.\d{1,3}){3}(:\d+)?$/.test(addr.trim())} onClick={run} data-testid="t3-add-probe">{busy && !probe ? "Asking…" : "Identify"}</button>
+      {probe && <div style={{ marginTop: 8 }} data-testid="t3-add-result">
+        <div className="kv"><span>Answers as</span><b>Device {probe.instance}{probe.panel_name ? ` · ${probe.panel_name}` : ""}</b></div>
+        {probe.in_bacnet_integration && <div className="muted small">Already in the BACnet/IP integration; adding the address makes T3000 requests go straight to it.</div>}
+        {probe.configured && <div className="muted small">Already configured: the address will be updated.</div>}
+        <label className="field"><span>Model</span><select value={model} onChange={(e) => setModel(e.target.value)} data-testid="t3-add-model">
+          <option value="">Not set</option>{["T3-BB", "T3-LB", "T3-TB", "T3-TB-11I", "TSTAT10"].map((m) => <option key={m} value={m}>{m}</option>)}</select></label>
+        <label className="field"><span>Name</span><input value={name} onChange={(e) => setName(e.target.value)} data-testid="t3-add-name" /></label>
+        <button className="btn primary sm" disabled={busy || !probe.ui_config} onClick={add} data-testid="t3-add-save">Add Controller</button>
+        {!probe.ui_config && <div className="muted small">The configuration is in YAML: add it under t3000: devices with address: {addr}.</div>}
+      </div>}
+      {err && <div className="errtxt small" data-testid="t3-add-error">{err}</div>}
     </div>
   );
 }

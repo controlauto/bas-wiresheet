@@ -10,6 +10,7 @@ from .const import DOMAIN
 async def async_setup_platform(hass: HomeAssistant, config, async_add_entities, discovery_info=None) -> None:
     runner = hass.data[DOMAIN]["runner"]
     runner.add_entities = async_add_entities
+    hass.data[DOMAIN]["sensor_add"] = async_add_entities  # the alarm watch may be created after this platform
     watch = hass.data[DOMAIN].get("alarm_watch")
     if watch is not None:
         watch.add_entities = async_add_entities

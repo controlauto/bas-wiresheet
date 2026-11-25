@@ -1,4 +1,5 @@
 // Explorer tabs for T3000 schedules (weekly and annual routines) and PID controllers.
+import { typedOk } from "./confirm.js";
 import React, { useEffect, useState } from "react";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -71,8 +72,8 @@ function WeeklyEditor({ ws, instance, index, canWrite, onSaved }) {
       </table>
       {canWrite && <div className="row" style={{ gap: 8, alignItems: "flex-end", marginTop: 6 }}>
         <button className="btn sm" onClick={copyMon}>Copy Monday to Tue–Fri</button>
-        <label className="field inl"><span>Type {name} to confirm</span><input className="mono" style={{ width: 80 }} value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="wr-confirm" /></label>
-        <button className="btn primary" disabled={busy || typed.trim().toUpperCase() !== name} onClick={save} data-testid="wr-save">Save to Controller</button>
+        <label className="field inl"><span>Type {name} to confirm</span><input className="mono" style={{ width: 80 }} data-confirm="1" value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="wr-confirm" /></label>
+        <button className="btn primary" disabled={busy || !typedOk(typed, name)} onClick={save} data-testid="wr-save">Save to Controller</button>
       </div>}
       {busy && <div className="muted">Writing and reading back…</div>}
       {msg && <div className="ok-txt small" data-testid="wr-done">{msg}</div>}
@@ -124,8 +125,8 @@ function AnnualEditor({ ws, instance, index, canWrite, onSaved }) {
         })}
       </div>
       {canWrite && <div className="row" style={{ gap: 8, alignItems: "flex-end", marginTop: 6 }}>
-        <label className="field inl"><span>Type {name} to confirm</span><input className="mono" style={{ width: 80 }} value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="ar-confirm" /></label>
-        <button className="btn primary" disabled={typed.trim().toUpperCase() !== name} onClick={save} data-testid="ar-save">Save to Controller</button>
+        <label className="field inl"><span>Type {name} to confirm</span><input className="mono" style={{ width: 80 }} data-confirm="1" value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="ar-confirm" /></label>
+        <button className="btn primary" disabled={!typedOk(typed, name)} onClick={save} data-testid="ar-save">Save to Controller</button>
       </div>}
       {msg && <div className="ok-txt small" data-testid="ar-done">{msg}</div>}
       {err && <div className="errtxt small">{err}</div>}
@@ -196,8 +197,8 @@ function PidRow({ ws, instance, loop, canWrite, onSaved }) {
       <label className="field inl"><span>I per</span><select value={edit.i_time_unit} onChange={(e) => setEdit({ ...edit, i_time_unit: e.target.value })}><option value="hour">Hour</option><option value="min">Minute</option></select></label>
       <label className="field inl"><span>Rate (D)</span><input type="number" min="0" max="2" step="0.01" value={edit.rate} onChange={(e) => setEdit({ ...edit, rate: e.target.value })} /></label>
       <label className="field inl"><span>Bias %</span><input type="number" min="0" max="100" value={edit.bias} onChange={(e) => setEdit({ ...edit, bias: e.target.value })} /></label>
-      <label className="field inl"><span>Type {name}</span><input className="mono" style={{ width: 80 }} value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="pid-confirm" /></label>
-      <button className="btn primary" disabled={typed.trim().toUpperCase() !== name} onClick={save} data-testid="pid-save">Save to Controller</button>
+      <label className="field inl"><span>Type {name}</span><input className="mono" style={{ width: 80 }} data-confirm="1" value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="pid-confirm" /></label>
+      <button className="btn primary" disabled={!typedOk(typed, name)} onClick={save} data-testid="pid-save">Save to Controller</button>
     </div>{err && <div className="errtxt small">{err}</div>}</div></td></tr>}
   </>);
 }
@@ -268,8 +269,8 @@ export function Ports({ ws, device, canWrite }) {
                 {!(String(p.mode_code) in data.modes) && <option value={p.mode_code}>{p.mode}</option>}</select></label>
               <label className="field" style={{ margin: 0 }}><span>Baud Rate</span><select value={edit.baud} onChange={(e) => setEdit({ ...edit, baud: Number(e.target.value) })} data-testid="port-baud">
                 {data.bauds.map((b) => <option key={b} value={b}>{b}</option>)}</select></label>
-              <label className="field" style={{ margin: 0 }}><span>Type {p.port} to confirm</span><input className="mono" style={{ width: 80 }} value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="port-confirm" /></label>
-              <button className="btn primary" disabled={busy || typed.trim().toUpperCase() !== p.port || (Number(edit.mode) === p.mode_code && Number(edit.baud) === p.baud)} onClick={save} data-testid="port-save">Save to Controller</button>
+              <label className="field" style={{ margin: 0 }}><span>Type {p.port} to confirm</span><input className="mono" style={{ width: 80 }} data-confirm="1" value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="port-confirm" /></label>
+              <button className="btn primary" disabled={busy || !typedOk(typed, p.port) || (Number(edit.mode) === p.mode_code && Number(edit.baud) === p.baud)} onClick={save} data-testid="port-save">Save to Controller</button>
               <button className="btn" onClick={() => setEdit(null)}>Cancel</button>
               {(p.mode_code === 1 || p.mode_code === 9) && Number(edit.mode) !== p.mode_code && <div className="errtxt small" style={{ flexBasis: "100%" }}>This port runs BACnet MS/TP now: devices on it lose communication when the mode changes.</div>}
             </div></td></tr>}
@@ -427,8 +428,8 @@ export function Backups({ ws, device, canWrite, canRestore }) {
           </React.Fragment>))}</tbody></table>}
         {canRestore && changes.changes.length > 0 && <div className="row" style={{ gap: 8, alignItems: "flex-end", marginTop: 8 }}>
           <span className="small">Put the checked items back as they were on <b>{fmtWhen(changes.before.taken_at)}</b>. A new backup is taken first.</span>
-          <label className="field" style={{ margin: 0 }}><span>Type RESTORE</span><input className="mono" style={{ width: 100 }} value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="t3-restore-confirm" /></label>
-          <button className="btn primary" disabled={running || !picked.length || typed.trim().toUpperCase() !== "RESTORE"} onClick={restore} data-testid="t3-restore-run">Restore {picked.length} item(s)</button>
+          <label className="field" style={{ margin: 0 }}><span>Type RESTORE</span><input className="mono" style={{ width: 100 }} data-confirm="1" value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="t3-restore-confirm" /></label>
+          <button className="btn primary" disabled={running || !picked.length || !typedOk(typed, "RESTORE")} onClick={restore} data-testid="t3-restore-run">Restore {picked.length} item(s)</button>
         </div>}
       </div>}
     </div>

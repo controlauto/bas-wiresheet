@@ -39,13 +39,15 @@
           "program_watch": "Nightly program watch",
           "program_watch_time": "Program watch time",
           "alarm_poll_s": "Controller alarm reading interval",
-          "mstp_routers": "MS/TP routers"
+          "mstp_routers": "MS/TP routers",
+          "unrestricted": "No restrictions on the controllers"
         },
         "data_description": {
           "unlock_protected_points": "Safety points (interlock, freeze, high/low limit, fire, smoke …) and locked equipment become writable. Leave off unless you decided so.",
           "alarm_poll_s": "0 turns background alarm reading off.",
           "mstp_routers": "One per line: network=router IP, for example 2001=192.0.2.20",
-          "program_watch_time": "A change of this time applies after a restart."
+          "program_watch_time": "A change of this time applies after a restart.",
+          "unrestricted": "Turns off every limit of this integration: no typed confirmations, every point and output writable, program edits not checked against write rules. Controller identity checks, read-back verification, backups and restore on failure stay."
         }
       },
       "controller": {
@@ -66,13 +68,15 @@
           "locked": "Never writable points",
           "model": "Model",
           "address": "Address (optional)",
-          "remove": "Remove these settings"
+          "remove": "Remove these settings",
+          "name": "Name"
         },
         "data_description": {
           "program_write_slots": "For example 15, 16",
           "sandbox": "For example VAR120-128, OUT60-64",
           "locked": "For example OUT1-10 (applies in every mode)",
-          "address": "Only if Home Assistant does not know it: 192.0.2.10, or for MS/TP 192.0.2.20/2001:5 (router / network:MAC)"
+          "address": "IP address (a controller that answers as a routed device, like a Tstat10, works without a router) or router/network:MAC for MS/TP",
+          "name": "Shown for controllers reached by IP address only (not in the BACnet/IP integration)"
         }
       },
       "locked": {
