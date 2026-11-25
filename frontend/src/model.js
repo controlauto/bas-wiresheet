@@ -115,7 +115,7 @@ export function controllerValues(sheet, points, ctl, stateMap, expectLogic, now)
   (sheet.blocks || []).forEach((b) => {
     const m = (stateMap || {})[b.id];
     const imp = (t3.timers || {})[b.id];
-    if (b.type === "on_delay" && (m || imp)) {
+    if ((b.type === "on_delay" && (m || imp)) || (b.type === "alarm" && m && m.kind === "on_delay")) {
       const t = timers[m ? m.timer : imp.key];
       if (!t) return;
       const delay = Number(m ? m.delay_s : (b.params || {}).delay_s);
@@ -130,6 +130,9 @@ export function controllerValues(sheet, points, ctl, stateMap, expectLogic, now)
     } else if (m && m.kind === "var_bool") {
       const v = num(m.var);
       if (v !== null) values[b.id] = v > 0;
+    } else if (m && m.kind === "var_num") {
+      const v = num(m.var);
+      if (v !== null) values[b.id] = v;
     } else if (b.type === "hysteresis" && m && m.kind === "hysteresis") {
       const v = num(m.var);
       if (v !== null) values[b.id] = v > 0;
@@ -165,7 +168,7 @@ export function t3LiveSnapshot(sheet, points, now, RT, ctl = null, stateMap = nu
   const cv = controllerValues(sheet, points, ctl, stateMap, expectLogic, now);
   const clone = JSON.parse(JSON.stringify(sheet));
   clone.blocks.forEach((b) => {
-    if (!["on_delay", "off_delay", "cb_local_read", "pi", "hysteresis", "latch"].includes(b.type)) return;
+    if (!["on_delay", "off_delay", "cb_local_read", "pi", "hysteresis", "latch", "edge", "counter", "alarm"].includes(b.type)) return;
     if (b.id in cv.values) { b.params = { key: b.id, boolean: typeof cv.values[b.id] === "boolean" }; b.type = "cb_controller_value"; }
     else b.type = "cb_controller_only";
   });

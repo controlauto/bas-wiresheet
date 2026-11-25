@@ -22,7 +22,7 @@ from . import panels
 POINT_RE = re.compile(r"^(IN|OUT|VAR)([1-9]\d*)$")
 POINT_LIMITS = {"IN": 64, "OUT": 64, "VAR": 128}
 COMPARE_OPS = {">": ">", ">=": ">=", "<": "<", "<=": "<=", "==": "=", "!=": "<>"}
-T3000_BLOCKS = {"t3_read", "t3_write", "modbus_read", "modbus_write", "constant", "compare", "and", "or", "not", "on_delay", "off_delay", "status_display", "xor", "latch", "range_check",
+T3000_BLOCKS = {"t3_read", "t3_write", "edge", "counter", "alarm", "modbus_read", "modbus_write", "constant", "compare", "and", "or", "not", "on_delay", "off_delay", "status_display", "xor", "latch", "range_check",
                 "add", "subtract", "multiply", "divide", "minimum", "maximum", "absolute", "limit", "scale", "hysteresis", "select", "pi"}
 # Modbus RTU points of any device on the controller's RS-485 port in Modbus Master mode. Control Basic remote point
 # syntax <panel>.<slave id>.<type><register> (T3000 CM5 point type names; compiled and listed back by T3000's own code).
@@ -257,6 +257,51 @@ class _Gen:
             self.emit(f"IF {w} > 0 THEN {latch} = 1")
             self.emit(f"IF ( {w} = 0 ) AND ( TIME-OFF( {w} ) >= {delay} ) THEN {latch} = 0")
             return f"( {latch} > 0 )"
+        if t == "alarm":
+            # Same timing as On Delay: active once the condition has stayed true for delay_s (0 = immediately).
+            try:
+                delay = format_number(p.get("delay_s", 0))
+            except (TypeError, ValueError) as e:
+                self.err("t3_number", str(e), bid, "delay_s")
+                return "0"
+            w = self.take_work(bid)
+            self.emit(f"IF {self.input(bid, 'in')} THEN {w} = 1 ELSE {w} = 0")
+            self.state_map[bid] = {"kind": "on_delay", "timer": w, "delay_s": float(delay)}
+            return self.group(f"( ( {w} > 0 ) AND ( TIME-ON( {w} ) >= {delay} ) )")
+        if t == "edge":
+            # P = previous input (0 none yet, 1 OFF, 2 ON); T = 1 for the one scan with the edge; L = the pulse.
+            # The pulse ends pulse_s after the last edge (TIME-OFF of T restarts on every edge, so a new edge extends it).
+            try:
+                pulse = float(p.get("pulse_s", 5))
+            except (TypeError, ValueError):
+                pulse = -1
+            if pulse <= 0:
+                self.err("t3_number", "Pulse length must be above 0 s", bid, "pulse_s")
+                return "0"
+            kind = p.get("edge", "rising")
+            x = self.atom(bid, self.input(bid, "in"))
+            wp, wt, wl = self.take_work(bid), self.take_work(bid), self.take_work(bid)
+            if kind == "falling":
+                self.emit(f"IF ( {wp} = 2 ) AND ( NOT {x} ) THEN {wt} = 1 ELSE {wt} = 0")
+            else:
+                self.emit(f"IF ( {wp} = 1 ) AND {x} THEN {wt} = 1 ELSE {wt} = 0")
+                if kind == "both":
+                    self.emit(f"IF ( {wp} = 2 ) AND ( NOT {x} ) THEN {wt} = 1")
+            self.emit(f"IF {x} THEN {wp} = 2 ELSE {wp} = 1")
+            self.emit(f"IF {wt} > 0 THEN {wl} = 1")
+            self.emit(f"IF ( {wt} = 0 ) AND ( TIME-OFF( {wt} ) >= {format_number(pulse)} ) THEN {wl} = 0")
+            self.state_map[bid] = {"kind": "var_bool", "var": wl}
+            return f"( {wl} > 0 )"
+        if t == "counter":
+            # N = count of rising edges, P = previous input (0 none yet, 1 OFF, 2 ON). Reset wins and sets 0.
+            x = self.atom(bid, self.input(bid, "in"))
+            wn, wp = self.take_work(bid), self.take_work(bid)
+            self.emit(f"IF ( {wp} = 1 ) AND {x} THEN {wn} = {wn} + 1")
+            self.emit(f"IF {x} THEN {wp} = 2 ELSE {wp} = 1")
+            if (bid, "reset") in self.incoming:
+                self.emit(f"IF {self.input(bid, 'reset')} THEN {wn} = 0")
+            self.state_map[bid] = {"kind": "var_num", "var": wn}
+            return wn
         built = self.build_math(t, bid, p)
         if built is not None:
             return built

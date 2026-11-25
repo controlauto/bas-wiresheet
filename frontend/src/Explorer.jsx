@@ -188,7 +188,7 @@ function PointConfig({ ws, instance, point, onClose, onDone }) {
   const [err, setErr] = useState(null);
   const [done, setDone] = useState(null);
   const load = () => ws({ type: "bas_wiresheet/t3_point_config", instance, category: point.category, index: point.index })
-    .then((r) => { setCfg(r); setEdit({ description: r.description, label: r.label, auto_manual: r.auto_manual, digital_analog: r.digital_analog, range: r.range }); return r; })
+    .then((r) => { setCfg(r); setEdit({ description: r.description, label: r.label, auto_manual: r.auto_manual, digital_analog: r.digital_analog, range: r.range, ...(point.category === "IN" ? { calibration: r.calibration } : {}) }); return r; })
     .catch((e) => setErr(e.message));
   useEffect(() => { load(); }, []); // eslint-disable-line
   const changes = cfg ? Object.fromEntries(Object.entries(edit).filter(([k, v]) => String(v) !== String(cfg[k]))) : {};
@@ -209,12 +209,13 @@ function PointConfig({ ws, instance, point, onClose, onDone }) {
           <label className="field" style={{ margin: 0 }}><span>Description (max {cfg.description_max})</span><input maxLength={cfg.description_max} value={edit.description} onChange={(e) => setEdit({ ...edit, description: e.target.value })} data-testid="t3-cfg-description" /></label>
           <label className="field" style={{ margin: 0 }}><span>Label (max {cfg.label_max})</span><input className="mono" maxLength={cfg.label_max} value={edit.label} onChange={(e) => setEdit({ ...edit, label: e.target.value.toUpperCase() })} data-testid="t3-cfg-label" style={{ width: 110 }} /></label>
           <label className="field" style={{ margin: 0 }}><span>Auto / Manual</span><select value={edit.auto_manual} onChange={(e) => setEdit({ ...edit, auto_manual: e.target.value })} data-testid="t3-cfg-am"><option value="auto">Auto</option><option value="manual">Manual</option></select></label>
-          {point.category === "VAR" && <>
+          {<>
             <label className="field" style={{ margin: 0 }}><span>Type</span><select value={edit.digital_analog} onChange={(e) => setEdit({ ...edit, digital_analog: e.target.value, range: 0 })} data-testid="t3-cfg-da"><option value="analog">Analog</option><option value="digital">Digital</option></select></label>
-            <label className="field" style={{ margin: 0 }}><span>Units</span><select value={edit.range} onChange={(e) => setEdit({ ...edit, range: Number(e.target.value) })} data-testid="t3-cfg-range">
+            <label className="field" style={{ margin: 0 }}><span>{point.category === "VAR" ? "Units" : "Range"}</span><select value={edit.range} onChange={(e) => setEdit({ ...edit, range: Number(e.target.value) })} data-testid="t3-cfg-range">
               {units.map((u, i) => <option key={i} value={i}>{u}</option>)}
               {edit.range >= units.length && <option value={edit.range}>custom {edit.range}</option>}
             </select></label>
+            {point.category === "IN" && edit.digital_analog === "analog" && <label className="field" style={{ margin: 0 }}><span>Calibration (±)</span><input type="number" step="0.1" style={{ width: 80 }} value={edit.calibration ?? 0} onChange={(e) => setEdit({ ...edit, calibration: e.target.value === "" ? 0 : Number(e.target.value) })} data-testid="t3-cfg-cal" /></label>}
           </>}
           <label className="field" style={{ margin: 0 }}><span>Type {name} to confirm</span><input className="mono" style={{ width: 90 }} value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="t3-cfg-confirm" /></label>
           <button className="btn primary" disabled={busy || !Object.keys(changes).length || typed.trim().toUpperCase() !== name} onClick={save} data-testid="t3-cfg-save">Save to Controller</button>

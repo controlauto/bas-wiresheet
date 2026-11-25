@@ -9,7 +9,7 @@ import {
   sheetToFlow, flowToSheet, defaultParams, newId, resolvePortType, resolvePortUnit, fmtValue, fmtTime, fmtAge,
   qualityLabel, FRESH_CLASS, SCHEMA, t3LiveSnapshot, cloneSelection, nodeTypeOf,
 } from "./model.js";
-import { Faceplate, PANEL_TYPES } from "./Faceplate.jsx";
+import { Faceplate, PANEL_TYPES, TerminalPanel } from "./Faceplate.jsx";
 import SCENARIOS from "./scenarios.js";
 import Explorer from "./Explorer.jsx";
 import { History, TrendChart, buildDocument, SheetRuntime, TemplateDialog } from "./Extras.jsx";
@@ -531,6 +531,7 @@ function Editor({ hass, boot, initialSheet }) {
   const [libFilter, setLibFilter] = useState("");
   const [issues, setIssues] = useState([]);
   const [selection, setSelection] = useState(null);
+  const pinClick = useRef(null); // terminal clicked on a controller faceplate (read by onNodeClick)
   const [mode, setMode] = useState(MODE.EDIT);
   const [toast, setToast] = useState(null);
   const [dialog, setDialog] = useState(null);
@@ -614,6 +615,19 @@ function Editor({ hass, boot, initialSheet }) {
       .then((r) => { if (!stop) setT3Settings(r); }).catch((e) => { if (!stop) setT3SettingsError(e.message); });
     return () => { stop = true; };
   }, [t3Instance, hasOutPanel, ws]);
+  // Controller faceplates: point configuration straight from the controller point tables (labels, ranges, switches)
+  const hasPanel = !!(sheet && sheet.blocks.some((b) => PANEL_TYPES[b.type]));
+  const [t3Table, setT3Table] = useState(null);
+  const [tableTick, setTableTick] = useState(0);
+  useEffect(() => {
+    if (!t3Instance || !hasPanel) { setT3Table(null); return undefined; }
+    let stop = false;
+    const load = () => Promise.all(["IN", "OUT"].map((k) => ws({ type: "bas_wiresheet/t3_point_table", instance: t3Instance, category: k }).then((r) => r.points).catch(() => null)))
+      .then(([IN, OUT]) => { if (!stop && (IN || OUT)) setT3Table({ IN: IN || [], OUT: OUT || [], at: Date.now() }); });
+    load();
+    const h = mode === MODE.LIVE ? setInterval(load, 15000) : null;
+    return () => { stop = true; if (h) clearInterval(h); };
+  }, [t3Instance, hasPanel, mode, tableTick, ws]);
   // Live Monitoring of T3000 sheets: timers and locals from the running program (read only, every 10 s)
   const t3Slot = meta && meta.mode === "t3000" && meta.t3000 ? meta.t3000.program_slot : null;
   const t3Imported = !!(meta && meta.t3000 && meta.t3000.imported);
@@ -801,7 +815,10 @@ function Editor({ hass, boot, initialSheet }) {
     } catch (e) { notify(`Import failed: ${e.message}`, "bad"); }
   };
   const newSheet = async (id, name, t3) => {
-    const s = { schema: SCHEMA, id, name, mode: t3 ? "t3000" : "monitoring", description: "", equipment: [], blocks: [], wires: [], ...(t3 ? { t3000: t3 } : {}) };
+    // a new T3000 program sheet starts with the controller: inputs on the left, outputs on the right
+    const face = t3 ? [{ id: "ctl_in", type: "t3_panel_in", label: "Controller Inputs", position: { x: 40, y: 40 }, params: { model: "Auto", show: "All" } },
+      { id: "ctl_out", type: "t3_panel_out", label: "Controller Outputs", position: { x: 1100, y: 40 }, params: { model: "Auto", show: "All" } }] : [];
+    const s = { schema: SCHEMA, id, name, mode: t3 ? "t3000" : "monitoring", description: "", equipment: [], blocks: face, wires: [], ...(t3 ? { t3000: t3 } : {}) };
     try { await ws({ type: "bas_wiresheet/save_draft", sheet: s, create: true }); } catch (e) { notify(e.message, "bad"); return false; }
     await refreshList(); await loadSheet(id); return true;
   };
@@ -899,7 +916,9 @@ function Editor({ hass, boot, initialSheet }) {
     edges.forEach((e) => { (m[e.source] = m[e.source] || new Set()).add(e.sourceHandle); (m[e.target] = m[e.target] || new Set()).add(e.targetHandle); });
     return m;
   }, [edges]);
-  const ctx = { t3Points, t3Device, t3Settings, t3SettingsError, t3Instance, usedPins, catalog, hass, issuesByBlock, issuesByWire, snapshot, mode, readOnly, equipment, now: mode === MODE.SIM && sim.state ? sim.state.clock : now, nodeById, liveOk, wireColor, routes, wireStyle };
+  const selectedPin = selection && selection.kind === "node" && selection.pin ? { id: selection.id, pin: selection.pin } : null;
+  const pickPin = (id, pin) => { pinClick.current = { id, pin, at: Date.now() }; setSelection({ kind: "node", id, pin }); };
+  const ctx = { t3Points, t3Device, t3Settings, t3SettingsError, t3Instance, t3Table, selectedPin, pickPin, usedPins, catalog, hass, issuesByBlock, issuesByWire, snapshot, mode, readOnly, equipment, now: mode === MODE.SIM && sim.state ? sim.state.clock : now, nodeById, liveOk, wireColor, routes, wireStyle };
 
   const selNode = selection && selection.kind === "node" && nodeById[selection.id];
   const trendEntity = (() => {
@@ -987,7 +1006,9 @@ function Editor({ hass, boot, initialSheet }) {
             <div className="pane-h">Block Library</div>
             <input className="lib-search" placeholder="Search blocks" value={libFilter} onChange={(e) => setLibFilter(e.target.value)} data-testid="lib-search" />
             {catalog.categories.map((cat) => {
-              const items = Object.entries(catalog.blocks).filter(([t, d]) => d.category === cat && (!(meta && meta.mode === "t3000") || !["entity_input", "data_freshness"].includes(t))
+              const items = Object.entries(catalog.blocks).filter(([t, d]) => d.category === cat && (!(meta && meta.mode === "t3000") || !["entity_input", "data_freshness", "average", "rate", "ramp"].includes(t))
+                && (!(meta && meta.mode !== "t3000") || !["t3_read", "t3_write", "t3_panel_in", "t3_panel_out", "modbus_read", "modbus_write"].includes(t))
+                && !["cb_unmapped", "cb_local_read", "cb_local_write"].includes(t) // only in sheets generated from a controller program
                 && (!libFilter || `${d.label} ${d.description} ${cat}`.toLowerCase().includes(libFilter.toLowerCase())));
               if (!items.length) return null;
               return (
@@ -1012,7 +1033,7 @@ function Editor({ hass, boot, initialSheet }) {
               onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect}
               onNodeDragStart={() => { dragStart.current = snapshotState(); }}
               onNodeDragStop={() => { if (dragStart.current) { hist.current.past.push(dragStart.current); hist.current.future = []; dragStart.current = null; setDirty(true); } }}
-              onNodeClick={(_, n) => setSelection({ kind: "node", id: n.id })}
+              onNodeClick={(ev, n) => { const pk = pinClick.current; pinClick.current = null; setSelection({ kind: "node", id: n.id, ...(pk && pk.id === n.id && Date.now() - pk.at < 1000 ? { pin: pk.pin } : {}) }); }}
               onEdgeClick={(_, e) => setSelection({ kind: "edge", id: e.id })}
               onPaneClick={(ev) => { const path = ev.nativeEvent && ev.nativeEvent.composedPath ? ev.nativeEvent.composedPath() : []; if (path.some((el) => el.classList && (el.classList.contains("react-flow__node") || el.classList.contains("react-flow__edge")))) return; setSelection(null); }}
               nodesDraggable={!readOnly} nodesConnectable={!readOnly} elementsSelectable deleteKeyCode={null}
@@ -1026,6 +1047,11 @@ function Editor({ hass, boot, initialSheet }) {
             <div className="pane-h">Inspector</div>
             {selNode ? (
               <>
+              {selection.pin && PANEL_TYPES[selNode.data.block.type] && (
+                <TerminalPanel key={`${selNode.id}:${selection.pin}`} ws={ws} c={ctx} node={selNode} pin={selection.pin} edges={edges} canEdit={role === "editor"} TrendChart={TrendChart}
+                  onPinType={(t) => updateBlock(selNode.id, (b) => { b.params.pins = { ...(b.params.pins || {}), [selection.pin]: t }; return b; })}
+                  onReloadTable={() => setTableTick((x) => x + 1)} />
+              )}
               <BlockInspector node={selNode}
                 onParam={(k, v) => updateBlock(selNode.id, (b) => { b.params[k] = v; return b; })}
                 onLabel={(v) => updateBlock(selNode.id, (b) => { b.label = v; return b; })}

@@ -646,8 +646,8 @@ async def ws_t3_point_config(hass, connection, msg):
     except (*T3_ERRORS, IndexError, struct.error) as err:
         connection.send_error(msg["id"], "t3000", str(err))
         return
-    connection.send_result(msg["id"], {**result, "units_analog": t3000_points.VARIABLE_ANALOG_UNITS if kind == "VAR" else None,
-                                       "units_digital": t3000_points.DIGITAL_UNITS if kind == "VAR" else None,
+    ranges = t3000_points.range_lists(kind)
+    connection.send_result(msg["id"], {**result, "units_analog": ranges["analog"], "units_digital": ranges["digital"],
                                        "description_max": t3000_points.KINDS[kind][3] - 1, "label_max": t3000_points.LABEL_LEN - 1})
 
 
@@ -1520,6 +1520,8 @@ def _t3_labels(hass, instance: int) -> dict[str, str]:
 
 async def _t3_store_import(hass, connection, code: bytes, instance: int, slot: int, title: str) -> dict:
     labels = _t3_labels(hass, instance)
+    devcfg = t3000_policy.device_configs(hass.data[DOMAIN]["conf"].get("t3000", {})).get(instance)
+    model = devcfg.model if devcfg else None
     repo = _repo(hass)
     existing = {s["id"] for s in repo.list()}
     base = f"t3-{instance}-prg{slot}"
@@ -1529,7 +1531,8 @@ async def _t3_store_import(hass, connection, code: bytes, instance: int, slot: i
 
     def build():
         listing = t3000_toolchain.decompile(code)
-        return t3000_import.code_to_sheet(code, listing, sheet_id=sheet_id, name=title, instance=instance, slot=slot, labels=labels), listing
+        return t3000_import.code_to_sheet(code, listing, sheet_id=sheet_id, name=title, instance=instance, slot=slot, labels=labels,
+                                          faceplates=True, model=model), listing
 
     result, listing = await hass.async_add_executor_job(build)
     if result["report"]["too_large"]:

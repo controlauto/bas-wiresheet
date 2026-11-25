@@ -28,13 +28,35 @@ DIGITAL_UNITS = ["Unused", "Off/On", "Close/Open", "Stop/Start", "Disable/Enable
                  "Cool/Heat", "Unoccupy/Occupy", "Low/High", "On/Off", "Open/Close", "Start/Stop", "Enable/Disable", "Alarm/Normal",
                  "High/Normal", "Low/Normal", "Yes/No", "Heat/Cool", "Occupy/Unoccupy", "High/Low"]
 
+# Range tables, copied from T3000 global_define.h (index = the point's range byte).
+INPUT_ANALOG_RANGES = ["Unused", "Y3K -40 to 150 °C", "Y3K -40 to 300 °F", "10K Type2 °C", "10K Type2 °F", "G3K -40 to 120 °C", "G3K -40 to 250 °F",
+                       "10K Type3 °C", "10K Type3 °F", "PT 1K -200 to 300 °C", "PT 1K -200 to 570 °F", "0.0 to 5.0 Volts", "0.0 to 100 Amps",
+                       "4 to 20 ma", "4 to 20 psi", "Pulse Count (Slow 1Hz)", "0 to 100 %", "0 to 100 %", "0 to 100 %", "0.0 to 10.0 Volts",
+                       "Table 1", "Table 2", "Table 3", "Table 4", "Table 5", "Pulse Count (Fast 100Hz)", "Frequency Hz", "Humidity %",
+                       "CO2 PPM", "Revolutions Per Minute", "TVOC PPB", "ug/m3", "#/cm3", "dB", "Lux", "", "-200A to 200A"]
+INPUT_ANALOG_UNITS = ["", "°C", "°F", "°C", "°F", "°C", "°F", "°C", "°F", "°C", "°F", "Volts", "Amps", "ma", "psi", "counts", "%", "%", "%", "Volts",
+                      "", "", "", "", "", "counts", "Hz", "%", "PPM", "RPM", "PPB", "ug/m3", "#/cm3", "dB", "Lux", "", "A"]
+OUTPUT_ANALOG_RANGES = ["Unused", "0.0 -> 10 Volts", "0.0 -> 100 %Open", "4 -> 20 psi", "0.0 -> 100 %", "0.0 -> 100 %Cls", "4 -> 20 ma",
+                        "0.0 -> 100 PWM", "2 -> 10 Volts"]
+OUTPUT_ANALOG_UNITS = ["", "Volts", "%Open", "psi", "%", "%Cls", "ma", "%PWM", "Volts"]
+HW_SWITCH = {0: "off", 1: "auto", 2: "hand"}  # Str_out_point.hw_switch_status (SW_OFF 0, SW_AUTO 1, SW_HAND 2)
+
+
+def range_lists(kind: str) -> dict[str, list[str]]:
+    """Range names a point of this kind may take, analog and digital (index = range byte)."""
+    analog = {"IN": INPUT_ANALOG_RANGES, "OUT": OUTPUT_ANALOG_RANGES, "VAR": VARIABLE_ANALOG_UNITS}[kind]
+    return {"analog": analog, "digital": DIGITAL_UNITS}
+
+
 # field offsets inside each struct (after description and label)
 OFFSETS = {
-    "OUT": {"description": (0, 19), "label": (21, 9), "value": 30, "auto_manual": 34, "digital_analog": 35, "range": 40, "decom": 39},
-    "IN": {"description": (0, 21), "label": (21, 9), "value": 30, "decom": 35, "auto_manual": 39, "digital_analog": 40, "range": 45},
+    "OUT": {"description": (0, 19), "label": (21, 9), "value": 30, "auto_manual": 34, "digital_analog": 35, "hw_switch": 36, "range": 40, "decom": 39},
+    "IN": {"description": (0, 21), "label": (21, 9), "value": 30, "filter": 34, "decom": 35, "auto_manual": 39, "digital_analog": 40,
+           "calibration_sign": 41, "calibration_h": 43, "calibration_l": 44, "range": 45},
     "VAR": {"description": (0, 21), "label": (21, 9), "value": 30, "auto_manual": 34, "digital_analog": 35, "range": 38},
 }
-EDITABLE = {"description", "label", "auto_manual", "digital_analog", "range", "value"}
+EDITABLE = {"description", "label", "auto_manual", "digital_analog", "range", "value", "calibration"}
+CALIBRATION_MAX = 1000.0  # engineering units; stored as tenths (16 bits) plus a sign byte
 VALUE_KINDS = {"OUT", "VAR"}
 
 
@@ -50,9 +72,20 @@ def decode(kind: str, raw: bytes) -> dict[str, Any]:
            "value_raw": struct.unpack_from("<i", raw, o["value"])[0], "auto_manual": "manual" if raw[o["auto_manual"]] else "auto",
            "digital_analog": "analog" if raw[o["digital_analog"]] else "digital", "range": raw[o["range"]]}
     out["value"] = out["value_raw"] / 1000.0
-    if kind == "VAR":
-        names = VARIABLE_ANALOG_UNITS if out["digital_analog"] == "analog" else DIGITAL_UNITS
-        out["range_name"] = names[out["range"]] if out["range"] < len(names) else f"custom {out['range']}"
+    names = range_lists(kind)[out["digital_analog"]]
+    out["range_name"] = names[out["range"]] if out["range"] < len(names) and names[out["range"]] else f"custom {out['range']}"
+    if out["digital_analog"] == "analog" and kind in ("IN", "OUT"):
+        units = INPUT_ANALOG_UNITS if kind == "IN" else OUTPUT_ANALOG_UNITS
+        out["units"] = units[out["range"]] if out["range"] < len(units) else ""
+    elif out["digital_analog"] == "digital" and out["range"] < len(DIGITAL_UNITS) and out["range"]:
+        out["units"] = DIGITAL_UNITS[out["range"]]
+    out["decommissioned"] = bool(raw[o["decom"]]) if "decom" in o else False
+    if kind == "IN":
+        cal = (raw[o["calibration_h"]] * 256 + raw[o["calibration_l"]]) / 10.0
+        out["calibration"] = -cal if raw[o["calibration_sign"]] else cal
+        out["filter"] = raw[o["filter"]]
+    if kind == "OUT":
+        out["hw_switch"] = HW_SWITCH.get(raw[o["hw_switch"]], f"code {raw[o['hw_switch']]}")
     return out
 
 
@@ -89,6 +122,18 @@ def encode_changes(kind: str, raw: bytes, changes: dict[str, Any]) -> bytes:
         if not 0 <= r <= 255:
             raise UploadRefused("range must be 0-255")
         buf[o["range"]] = r
+    if "calibration" in changes:
+        if kind != "IN":
+            raise UploadRefused("Calibration applies to inputs only")
+        try:
+            cal = float(changes["calibration"])
+        except (TypeError, ValueError):
+            raise UploadRefused("calibration must be a number") from None
+        if abs(cal) > CALIBRATION_MAX:
+            raise UploadRefused(f"calibration must be within ±{CALIBRATION_MAX:g}")
+        tenths = int(round(abs(cal) * 10))
+        buf[o["calibration_sign"]] = 1 if cal < 0 and tenths else 0
+        buf[o["calibration_h"]], buf[o["calibration_l"]] = tenths >> 8, tenths & 0xFF
     if "value" in changes:
         if kind not in VALUE_KINDS:
             raise UploadRefused("Inputs are measured by the controller; only outputs and variables take a value")

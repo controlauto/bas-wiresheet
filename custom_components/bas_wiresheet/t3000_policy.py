@@ -12,7 +12,7 @@ MODEL_PROFILES: dict[str, dict[str, Any]] = {
     "T3-LB": {"out_digital": (1, 6), "out_analog": (7, 10), "inputs": 16, "source": "MINIPANELARM_LB: 6DO, 4AO"},
     "T3-TB": {"out_digital": (1, 8), "out_analog": (9, 14), "inputs": 8, "source": "MINIPANELARM_TB: 8DO, 6AO"},
     "T3-TB-11I": {"out_digital": (1, 6), "out_analog": (7, 11), "inputs": 11, "source": "T3_TB_11I: 6DO, 5AO"},
-    "TSTAT10": {"out_digital": (1, 5), "out_analog": (6, 7), "inputs": None, "source": "T3_TSTAT10/11/HUB: 5DO, 2AO"},
+    "TSTAT10": {"out_digital": (1, 5), "out_analog": (6, 7), "inputs": 8, "source": "T3_TSTAT10/11/HUB: 5DO, 2AO; 8 inputs per the operator"},
 }
 
 # Generic safety points: never writable unless the operator sets unlock_protected_points.

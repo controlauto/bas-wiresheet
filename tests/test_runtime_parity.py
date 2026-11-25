@@ -211,3 +211,22 @@ def test_state_export_import_matches():
     for bid, x in saved.items():
         if "since" in x and x["since"] is not None:
             assert rt2.state[bid]["since"] == x["since"] + 60000
+
+
+def test_unwired_blocks_match_between_runtimes():
+    """Every catalog block with no wires: both runtimes give the same outputs and neither stops the sheet."""
+    import json as _json
+    cat = _json.loads((ROOT / "custom_components" / "bas_wiresheet" / "runtime" / "blocks.json").read_text())["blocks"]
+    for t, d in cat.items():
+        if t not in rp.EVAL:  # controller-only blocks (T3000, Modbus, faceplates) never run in Python; see test_t3000_compiler
+            continue
+        p = {x["id"]: x["default"] for x in d["params"] if x.get("default") is not None}
+        sheet = {"schema": "bas-wiresheet/1", "id": "x", "name": "x", "blocks": [{"id": "b", "type": t, "params": p, "position": {"x": 0, "y": 0}}], "wires": []}
+        steps = [{"t": 1000, "events": []}, {"t": 2000, "events": []}]
+        js, py = run_js(sheet, steps), run_py(sheet, steps)
+        for n, (a, c) in enumerate(zip(js, py)):
+            ja, pa = a["blocks"]["b"], c["blocks"]["b"]
+            assert ja["outputs"].keys() == pa["outputs"].keys(), (t, n, ja["outputs"].keys(), pa["outputs"].keys())
+            for port in ja["outputs"]:
+                compare_val(ja["outputs"][port], pa["outputs"][port], f"{t} tick {n} {port}")
+            assert a["displays"].keys() == c["displays"].keys(), t

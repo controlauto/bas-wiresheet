@@ -89,3 +89,75 @@ def map_issues(issues: list[dict], origin: dict[str, tuple[str, str]]) -> list[d
             i.pop("param", None)
             i["message"] = f"{pin}: {i.get('message', '')}"
     return issues
+
+
+def _models() -> dict:
+    import json
+    from pathlib import Path
+    return json.loads((Path(__file__).parent / "runtime" / "blocks.json").read_text(encoding="utf-8"))["t3_models"]
+
+
+def collapse(sheet: dict, model: str | None = None) -> dict:
+    """The reverse of expand() for generated sheets: T3000 Read blocks of the controller's physical inputs and T3000 Write
+    blocks of its physical outputs become wires from / to Controller Inputs and Controller Outputs faceplates.
+    Variables, Modbus points and reads of outputs stay ordinary blocks. Unknown model: T3-BB (the faceplate default)."""
+    models = _models()
+    prof = models.get(model or "") or models["T3-BB"]
+    inputs = set(range(1, prof["inputs"] + 1))
+    outputs = set(range(prof["out_digital"][0], prof["out_analog"][1] + 1))
+    taken = {b["id"] for b in sheet["blocks"]}
+
+    def phys(b: dict) -> str | None:
+        m = PIN_RE.match(str((b.get("params") or {}).get("point", "")).upper())
+        if not m:
+            return None
+        n = int(m.group(2))
+        if b["type"] == "t3_read" and m.group(1) == "IN" and n in inputs:
+            return m.group(0)
+        if b["type"] == "t3_write" and m.group(1) == "OUT" and n in outputs:
+            return m.group(0)
+        return None
+
+    pin_of = {b["id"]: phys(b) for b in sheet["blocks"] if b.get("type") in ("t3_read", "t3_write")}
+    pin_of = {k: v for k, v in pin_of.items() if v}
+    if not pin_of:
+        return sheet
+    out = copy.deepcopy(sheet)
+    rest = [b for b in out["blocks"] if b["id"] not in pin_of]
+    xs = [b["position"]["x"] for b in rest] or [0]
+    has_in = any(p.startswith("IN") for p in pin_of.values())
+    has_out = any(p.startswith("OUT") for p in pin_of.values())
+    shift = 620 if has_in else 0
+    for b in rest:
+        b["position"] = {"x": b["position"]["x"] - min(xs) + 40 + shift, "y": b["position"]["y"]}
+    right = max(b["position"]["x"] for b in rest) + 420 if rest else 700
+
+    def new_id(base: str) -> str:
+        i, bid = 2, base
+        while bid in taken:
+            bid, i = f"{base}{i}", i + 1
+        taken.add(bid)
+        return bid
+
+    cin = new_id("ctl_in") if has_in else None
+    cout = new_id("ctl_out") if has_out else None
+    pins: dict[str, str] = {}
+    vtype = {b["id"]: (b.get("params") or {}).get("value_type", "number") for b in out["blocks"]}
+    for w in out["wires"]:
+        if w["from"]["block"] in pin_of:
+            pin = pin_of[w["from"]["block"]]
+            pins.setdefault(pin, vtype[w["from"]["block"]])
+            w["from"] = {"block": cin, "port": pin}
+        if w["to"]["block"] in pin_of:
+            pin = pin_of[w["to"]["block"]]
+            pins.setdefault(pin, vtype[w["to"]["block"]])
+            w["to"] = {"block": cout, "port": pin}
+    params = {"model": "Auto", "show": "All"}
+    if cin:
+        rest.insert(0, {"id": cin, "type": "t3_panel_in", "label": "Controller Inputs", "position": {"x": 40, "y": 40},
+                        "params": {**params, "pins": {k: v for k, v in pins.items() if k.startswith("IN")}}})
+    if cout:
+        rest.append({"id": cout, "type": "t3_panel_out", "label": "Controller Outputs", "position": {"x": right, "y": 40},
+                     "params": {**params, "pins": {k: v for k, v in pins.items() if k.startswith("OUT")}}})
+    out["blocks"] = rest
+    return out

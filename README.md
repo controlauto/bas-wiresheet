@@ -43,6 +43,9 @@ and TEMCO controllers on **BACnet MS/TP** behind a BACnet router are supported.
 - **Modbus Read / Modbus Write** blocks for any Modbus RTU device (meters, drives, other brands) on a controller port in
   Modbus Master mode: holding and input registers, coils, discrete inputs and 32-bit floats in any byte order, with scaling.
   They compile to Control Basic remote points (`<panel>.<slave>.MB_REG<n>`).
+- Edge Pulse, Counter and Alarm also run on the controller. Moving Average, Rate of Change and Rate Limit need a sample
+  history and are offered on monitoring sheets only. Each controller block is checked in T3000's interpreter against the
+  browser runtime.
 - **Send to Controller**: one step from a T3000 sheet — saves a revision, compiles, shows the change against the
   controller, then loads or replaces the program, verifies it, keeps a backup and starts it.
 - **Controller faceplates** (*Controller Inputs* and *Controller Outputs*): the controller drawn as terminal strips with
@@ -50,7 +53,10 @@ and TEMCO controllers on **BACnet MS/TP** behind a BACnet router are supported.
   mode and baud rate) and status lights. Wire straight to a terminal: a wire from an input terminal reads that input, a
   wire into an output terminal writes that output (same Control Basic as T3000 Read / Write). Terminals follow the
   model: T3-BB 32 IN / 12 DO / 12 AO, T3-LB 16 / 6 / 4, T3-TB 8 / 8 / 6, T3-TB-11I 11 / 6 / 5, TSTAT10 8 / 5 / 2.
-  *Wired only* hides unused terminals.
+  *Wired only* hides unused terminals. Click a terminal to configure that point on the controller: label, description,
+  analog/digital, sensor type or range (T3000's own range lists), input calibration, auto/manual and the manual value,
+  with the position of the output's hardware Hand/Off/Auto switch. New T3000 sheets start with both faceplates, and
+  sheets generated from a controller program draw physical inputs and outputs on them.
 - Orthogonal **auto-routed wires** (or curved), **Tidy Layout**, and blocks that show the point label.
 - **T3000 sheets** compile to Control Basic and load to a controller program; generated code is checked to survive
   T3000's listing round trip. A sheet can also be **generated from an existing controller program**.

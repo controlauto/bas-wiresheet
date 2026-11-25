@@ -48,10 +48,13 @@
     return null;
   }
   function propagate(inputs, label) {
-    var b = firstBad(inputs);
-    if (!b) return null;
-    var q = b.q === "no_telemetry" || b.q === "unavailable" ? b.q : "invalid";
-    return bad(q, label + ": input " + (b.reason || b.q));
+    var i = 0;
+    while (i < inputs.length && isGood(inputs[i])) i++;
+    if (i === inputs.length) return null;
+    var b = inputs[i];
+    // a missing input (not connected) is "undefined", exactly as in runtime_py.propagate
+    var q = b && (b.q === "no_telemetry" || b.q === "unavailable") ? b.q : "invalid";
+    return bad(q, label + ": input " + ((b && (b.reason || b.q)) || "undefined"));
   }
 
   function parseTs(x) {

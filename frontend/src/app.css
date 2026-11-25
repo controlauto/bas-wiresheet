@@ -246,3 +246,11 @@ pre.diff { max-height: 260px; overflow: auto; }
 .fp-model { font-family: "JetBrains Mono", Consolas, monospace; letter-spacing: 0; text-transform: none; }
 .fp-brand { margin-top: 8px; padding: 0 4px; font: 800 26px/1 "Inter", system-ui, sans-serif; color: #eef1f5; letter-spacing: .02em; }
 .fp-brand small { display: block; font-size: 8px; letter-spacing: .35em; font-weight: 600; color: #8b97a8; margin-top: 3px; }
+.fp-row { cursor: pointer; }
+.fp-row.picked .fp-strip { box-shadow: 0 0 0 2px var(--accent); }
+.fp-row.decom .fp-lbl { text-decoration: line-through; opacity: .6; }
+.fp-hoa.off i { left: 8px; right: auto; background: linear-gradient(#d6dde6, #8b97a8); }
+.insp.term h3 { display: flex; align-items: baseline; gap: 8px; }
+.term-now { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 4px 0 10px; }
+.term-now .fp-lcd { width: auto; min-width: 80px; padding: 0 8px; }
+.warn-txt { color: var(--dq); }

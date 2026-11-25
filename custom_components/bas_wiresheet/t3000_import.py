@@ -15,6 +15,8 @@ import struct
 from dataclasses import dataclass, field
 from typing import Any
 
+from . import panels
+
 ASSIGNAR, ASSIGN, IF, ELSE, REM, ENDPRG, GOTO, GOTOIF = 0x08, 0x09, 0x0E, 0x10, 0x1A, 0x17, 0x13, 0x2A
 LOCAL_FLOAT, LOCAL_LONG = 0x83, 0x84
 POINT, CONST = 0x9C, 0x9D
@@ -480,8 +482,10 @@ def _layout(blocks: list[dict], wires: list[dict]) -> None:
         b.pop("_line", None)
 
 
-def code_to_sheet(code: bytes, listing: str, *, sheet_id: str, name: str, instance: int, slot: int, labels: dict[str, str] | None = None) -> dict:
-    """Return {'sheet', 'report'}. Never raises for unsupported code: those lines become Unmapped Code blocks."""
+def code_to_sheet(code: bytes, listing: str, *, sheet_id: str, name: str, instance: int, slot: int, labels: dict[str, str] | None = None,
+                  faceplates: bool = False, model: str | None = None) -> dict:
+    """Return {'sheet', 'report'}. Never raises for unsupported code: those lines become Unmapped Code blocks.
+    faceplates: physical inputs and outputs are drawn on Controller Inputs / Outputs faceplates (panels.collapse)."""
     if not _used(code):
         raise ValueError("The program is empty or its header is not valid")
     timers: dict = {}
@@ -567,9 +571,11 @@ def code_to_sheet(code: bytes, listing: str, *, sheet_id: str, name: str, instan
              "equipment": [], "t3000": {"device_instance": instance, "program_slot": slot, "work_vars": [], "imported": True,
                                                      "timers": dict(graph.timer_of), "logic": logic_digest(code)},
              "blocks": graph.blocks, "wires": graph.wires}
+    if faceplates:
+        sheet = panels.collapse(sheet, model)
     total = mapped + len(unmapped)
     return {"sheet": sheet, "report": {"lines": total, "mapped": mapped, "unmapped": unmapped, "complete": not unmapped and not timer_error,
-                                       "blocks": len(graph.blocks), "wires": len(graph.wires), "notes": notes,
+                                       "blocks": len(sheet["blocks"]), "wires": len(sheet["wires"]), "notes": notes,
                                        "too_large": len(graph.blocks) > MAX_IMPORT_BLOCKS}}
 
 

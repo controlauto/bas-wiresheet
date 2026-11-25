@@ -1580,8 +1580,7 @@
       "out_analog": [
         6,
         7
-      ],
-      "note": "Inputs: 8 assumed (model input count not in the product IO table)"
+      ]
     }
   }
 }

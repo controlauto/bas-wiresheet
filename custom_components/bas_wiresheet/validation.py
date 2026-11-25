@@ -17,7 +17,7 @@ _CATALOG_PATH = Path(__file__).parent / "runtime" / "blocks.json"
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 ENTITY_RE = re.compile(r"^[a-z0-9_]+\.[a-z0-9_]+$")
 T3_ONLY_BLOCKS = {"t3_read", "t3_write"}
-MONITORING_ONLY_BLOCKS = {"entity_input", "data_freshness"}
+MONITORING_ONLY_BLOCKS = {"entity_input", "data_freshness", "average", "rate", "ramp"}  # need a sample history / scan time a controller program does not have
 T3_POINT_RE = re.compile(r"^(IN|OUT|VAR)[1-9]\d*$")
 RELATIONS = {
     "limit": ("low", "high", "Low must be below High"),
