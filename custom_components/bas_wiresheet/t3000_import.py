@@ -510,6 +510,7 @@ def code_to_sheet(code: bytes, listing: str, *, sheet_id: str, name: str, instan
     index_at = {start: i for i, (_, start, _, _) in enumerate(spans)}
     guard: Any = True
     pending: dict[int, list] = {}
+    rems: list[dict] = []
 
     def jump(pos: int, here: int, cond: Any) -> None:
         to = index_at.get(pos)
@@ -522,6 +523,7 @@ def code_to_sheet(code: bytes, listing: str, *, sheet_id: str, name: str, instan
             guard = graph.either(guard, cond)
         body = re.sub(r"^\d+\s*", "", text)
         if body.upper().startswith("REM"):
+            rems.append({"seq": [num, graph.n], "text": body.rstrip()})  # comments come back in place in an editable copy
             continue
         if guard is False:
             mapped += 1
@@ -574,7 +576,7 @@ def code_to_sheet(code: bytes, listing: str, *, sheet_id: str, name: str, instan
     sheet = {"schema": "bas-wiresheet/1", "id": sheet_id, "name": name, "mode": "t3000",
              "description": f"Generated from T3000 program {slot} of controller {instance}. Documentation of the existing program; it cannot be loaded back.",
              "equipment": [], "t3000": {"device_instance": instance, "program_slot": slot, "work_vars": [], "imported": True,
-                                                     "timers": dict(graph.timer_of), "logic": logic_digest(code)},
+                                                     "timers": dict(graph.timer_of), "logic": logic_digest(code), "rems": rems},
              "blocks": graph.blocks, "wires": graph.wires}
     if faceplates:
         sheet = panels.collapse(sheet, model)

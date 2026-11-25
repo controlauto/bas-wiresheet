@@ -53,7 +53,7 @@ and TEMCO controllers on **BACnet MS/TP** behind a BACnet router are supported.
 - **Make Editable**: a sheet generated from a controller program becomes an editable copy that can be sent back. Work
   variables are picked automatically (VARs no program on the controller uses); intermediate values live in program-local
   variables. The copy is compiled back the way the program was written (IF … THEN point = value, in program order,
-  nested IFs keeping the condition of their line), so it stays close to the original size; each conversion is checked
+  nested IFs keeping the condition of their line, REM comments in their place), so it stays close to the original size; each conversion is checked
   in T3000's interpreter against the original program. Programs that still exceed T3000's 2000-byte limit, or that loop
   with a backward GOTO, are reported and stay editable as Control Basic. Local variables are available as blocks on T3000 sheets.
 - **Send to Controller**: one step from a T3000 sheet — saves a revision, compiles, shows the change against the

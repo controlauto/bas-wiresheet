@@ -682,12 +682,17 @@ class _Gen:
             order = sorted([("a", b) for b in roots] + [("w", b) for b, _ in targets], key=lambda x: (*seq(x[1]), x[0] == "w"))
             names = dict((b["id"], n) for b, n in targets)
             targets = []
+            pending_rems = list(getattr(self, "rems", []))
             for kind, b in order:
+                while pending_rems and tuple(pending_rems[0].get("seq") or (0, 0)) <= seq(b):
+                    self.emit(_rem_text(pending_rems.pop(0).get("text", "")))
                 if kind == "a":
                     self.output(b["id"], "out")
                 else:
                     targets.append((b, names[b["id"]]))
                     self.emit_write(b, names[b["id"]])
+            for r in pending_rems:
+                self.emit(_rem_text(r.get("text", "")))
             return
         for b, name in targets:
             self.emit_write(b, name)
@@ -715,6 +720,13 @@ class _Gen:
 
 
 _GUARDED_RE = re.compile(r"^IF (.+) THEN ([A-Z_][A-Z0-9_]*) = (.+)$")
+
+
+def _rem_text(text: str) -> str:
+    """A comment line as T3000 accepts it: REM and printable ASCII."""
+    body = re.sub(r"^REM\b\s*", "", str(text).strip(), flags=re.I)
+    body = "".join(ch for ch in body.upper() if 32 <= ord(ch) < 127)[:200]
+    return f"REM {body}".rstrip()
 
 
 def _skip_runs(lines: list[str], min_run: int = 3) -> list[str]:
@@ -748,10 +760,11 @@ def _skip_runs(lines: list[str], min_run: int = 3) -> list[str]:
     return out
 
 
-def generate(sheet: dict, guard: Guard) -> dict[str, Any]:
+def generate(sheet: dict, guard: Guard, rems: bool = True) -> dict[str, Any]:
     """Return {'source', 'issues', 'reads', 'writes', 'work_vars'}. Source is empty when there are errors."""
     sheet, origin, pin_issues = panels.expand(sheet)  # controller faceplates -> T3000 Read / Write blocks
     gen = _Gen(sheet, guard)
+    gen.rems = sorted(((sheet.get("t3000") or {}).get("rems") or []) if rems else [], key=lambda r: tuple(r.get("seq") or (0, 0)))
     gen.issues.extend(pin_issues)
     if (sheet.get("t3000") or {}).get("imported"):
         gen.err("t3_imported", "This sheet documents an existing controller program and cannot be compiled or loaded")

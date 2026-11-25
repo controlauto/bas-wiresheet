@@ -561,8 +561,19 @@ MAX_RESULT_BYTES = 256_000
 
 
 def _t3_compile(sheet: dict, devices: dict, guard=None) -> dict:
-    gen = t3000_basic.generate(sheet, guard or make_guard(devices, sheet["t3000"]["device_instance"]))
+    guard = guard or make_guard(devices, sheet["t3000"]["device_instance"])
+    gen = t3000_basic.generate(sheet, guard)
+    note = None
+    if gen["source"] and (sheet.get("t3000") or {}).get("rems"):
+        try:
+            t3000_toolchain.build(gen["source"])
+        except t3000_toolchain.ToolchainError as err:
+            if "2000 bytes" in str(err):  # the comments do not fit: compile without them
+                gen = t3000_basic.generate(sheet, guard, rems=False)
+                note = {"severity": "warning", "code": "t3_rems_left_out", "message": "Comments (REM) were left out so the program fits in 2000 bytes"}
     out = {k: gen[k] for k in ("source", "issues", "reads", "writes", "work_vars", "state_map", "modbus_reads", "panel")}
+    if note:
+        out["issues"] = [*out["issues"], note]
     if gen["source"]:
         try:
             built = t3000_toolchain.build(gen["source"])
