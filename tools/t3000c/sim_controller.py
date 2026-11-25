@@ -35,7 +35,9 @@ class SimController:
                        17: [bytearray(144) for _ in range(8)], 18: [bytearray(46) for _ in range(4)], 41: [bytearray([255] * 72) for _ in range(8)]}
         st = bytearray(400); st[0:4] = bytes([127, 0, 0, 1]); st[38:41] = bytes([7, 0, 1]); st[44:47] = bytes([6, 6, 6])
         st[52:55] = b"SIM"; st[73] = 4
-        self.tables[98] = [st]                      # controller settings (Str_Setting_Info): panel 4, COM0 Modbus Master, COM2 MS/TP
+        self.tables[98] = [st]
+        self.tables[13] = [bytearray(102) for _ in range(16)]   # alarm log (Alarm_point)
+        self.tables[10] = [bytearray(104) for _ in range(12)]   # monitors (Str_monitor_point)                      # controller settings (Str_Setting_Info): panel 4, COM0 Modbus Master, COM2 MS/TP
         self.no_flags = False                       # emulate firmware without the schedule flag table
         self.table_writes = []                  # like real firmware: a running program changes its timer bytes and error byte
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -118,10 +120,13 @@ class SimController:
             base = command % 100
             table = self.tables[base]
             size = len(table[0])
+            if command < 100:   # range reads (start..end), like real T3 firmware
+                if end < start or end >= len(table) or entity != size:
+                    return bytes([0x60, invoke, 4])
+                body = b"".join(bytes(table[k]) for k in range(start, end + 1))
+                return ack(tb.HEADER.pack(7 + len(body), command, start, end, entity) + body)
             if start != end or start >= len(table) or entity != size:
                 return bytes([0x60, invoke, 4])
-            if command < 100:
-                return ack(tb.header(7 + size, command, start, entity) + bytes(table[start]))
             if total != 7 + size or len(data) != 7 + size:
                 return bytes([0x60, invoke, 4])
             table[start] = bytearray(data[7:])

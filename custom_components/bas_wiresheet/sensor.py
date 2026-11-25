@@ -10,6 +10,9 @@ from .const import DOMAIN
 async def async_setup_platform(hass: HomeAssistant, config, async_add_entities, discovery_info=None) -> None:
     runner = hass.data[DOMAIN]["runner"]
     runner.add_entities = async_add_entities
+    watch = hass.data[DOMAIN].get("alarm_watch")
+    if watch is not None:
+        watch.add_entities = async_add_entities
     for sid, run in runner.sheets.items():
         runner._ensure_entity(sid, run.sheet.get("name", sid))
 

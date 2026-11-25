@@ -12,7 +12,7 @@ from __future__ import annotations
 import struct
 from typing import Any
 
-from .t3000_bacnet import PRIVATE_LEN, BacnetError, UploadRefused, header
+from .t3000_bacnet import PRIVATE_LEN, BacnetError, UploadRefused, header, read_range
 
 KINDS = {
     # category: (read command, size, max index, description length)
@@ -118,6 +118,12 @@ def read_struct(client, kind: str, index: int) -> bytes:
     if len(data) != PRIVATE_LEN + size or data[2] != cmd or data[3] != i:
         raise BacnetError(f"Unexpected reply reading {kind}{index}")
     return data[PRIVATE_LEN:]
+
+
+def read_all(client, kind: str) -> list[bytes]:
+    """Every record of a kind, 10 per request (450-460 bytes, like T3000)."""
+    cmd, size, top, _ = KINDS[kind]
+    return read_range(client, cmd, 0, top, size, 10)
 
 
 def write_struct(client, kind: str, index: int, raw: bytes) -> None:

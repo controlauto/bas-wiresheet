@@ -187,3 +187,12 @@ table.simtab, table.points { width: 100%; border-collapse: collapse; margin: 6px
 .send-steps { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; font-size: 12px; }
 pre.diff div.add { color: #3fb950; } pre.diff div.del { color: #f85149; } pre.diff div.hunk { color: #8b97a8; }
 pre.diff { max-height: 260px; overflow: auto; }
+.alarm-row td { background: rgba(229, 72, 77, .10); }
+.live-code { background: #0d1117; border: 1px solid #243041; border-radius: 4px; padding: 6px 8px; max-height: 420px; overflow: auto; }
+.lc-line { display: flex; gap: 12px; align-items: baseline; white-space: pre; line-height: 1.6; }
+.lc-code { flex: 0 0 auto; }
+.lc-vals { display: flex; gap: 6px; flex-wrap: wrap; }
+.lc-v { background: #16324a; color: #9fd3ff; border-radius: 3px; padding: 0 5px; font-size: 11px; }
+.lc-v.man { background: #4a3a16; color: #ffd58a; }
+.lc-v.loc { background: #2b2350; color: #c9b8ff; }
+.lc-v.tmr { background: #3a2216; color: #ffb38a; margin-left: 6px; }

@@ -24,6 +24,16 @@ and TEMCO controllers on **BACnet MS/TP** behind a BACnet router are supported.
 - **PID loops**: the 16 T3000 PID controllers (input, setpoint, output, P, I, D, bias, action, auto/manual) with tuning.
 - **Export**: programs as T3000 program-editor text files (`PRGnn.txt`, *Load File* in T3000) plus exact byte code.
 - **Ports**: panel number and the RS-485 ports (Modbus Master, Modbus Slave, BACnet MS/TP, unused) with baud rate.
+- **Backups**: a full backup of a controller in seconds (16 programs, all inputs, outputs and variables, PID loops,
+  schedules, trend log definitions and settings); up to 12 per controller with notes, pinning and JSON download.
+  **Compare** two backups field by field (with the program listing difference) and **restore** selected items, each one
+  read back; a backup is taken automatically before every restore. Network settings are never restored.
+- **Alarms**: the controller's own alarm table (firmware and program alarms) with Acknowledge and Delete; Home Assistant
+  polls it (every 60 s by default, `alarm_poll_s`), keeps one sensor per controller with the active alarm count and
+  raises a notification for each new alarm.
+- **Trend Logs**: the controller's 12 monitors (inputs and interval), with charts of their points from the recorder.
+- **Live values in code**: the Control Basic listing with the current value of every point next to each line (manual
+  points highlighted), the program's local variables and timers; refreshed every 5 s, read only.
 - **Discovery**: Who-Is through the BACnet/IP integration; TEMCO controllers on BACnet/IP and MS/TP.
 
 **Wire sheets**
@@ -80,7 +90,10 @@ features named.
 
 1. HACS > Integrations > ⋮ > *Custom repositories* > add this repository, category *Integration*.
 2. Install **BAS Wire Sheet for TEMCO** and restart Home Assistant.
-3. Add the configuration below (for example in `packages/bas_wiresheet.yaml`) and restart again.
+3. *Settings > Devices & services > Add integration > BAS Wire Sheet*. The options menu sets access, each controller,
+   MS/TP routers, locked equipment and Node-RED; changes apply without a restart (except the Program Watch time).
+   Or use YAML: add the configuration below (for example in `packages/bas_wiresheet.yaml`) and restart again.
+   When YAML configuration is present it takes precedence and the UI options are not used.
 
 ## Configuration
 
@@ -93,6 +106,7 @@ bas_wiresheet:
     unlock_protected_points: false  # true: safety-pattern points and locked equipment may be changed too
     program_watch: true
     program_watch_time: "02:30:00"
+    alarm_poll_s: 60                # controller alarm table poll interval, 0 = off
     mstp_routers:                   # BACnet network number -> router IP[:port], for MS/TP controllers
       2001: 192.0.2.20
     locked_equipment:               # optional: equipment to lock by name pattern (labels, entity ids, programs)

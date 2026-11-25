@@ -37,7 +37,8 @@ from .const import (
     CONF_EDITORS, CONF_NODERED_TEST, DOMAIN, PANEL_ICON, PANEL_TITLE, PANEL_URL_PATH,
     PREVIEW_TTL_S, STATIC_URL, TARGET_PRODUCTION, TARGET_TEST, VERSION,
 )
-from . import t3000, t3000_bacnet, t3000_basic, t3000_import, t3000_points, t3000_policy, t3000_settings, t3000_tables, t3000_toolchain
+from . import t3000, t3000_alarms, t3000_bacnet, t3000_basic, t3000_import, t3000_points, t3000_policy, t3000_settings, t3000_snapshot, t3000_tables, t3000_toolchain
+from .controller_tools import AlarmWatch, SnapshotStore
 from .t3000_policy import make_guard
 from .program_watch import ProgramWatch
 from .sheet_runner import SheetRunner
@@ -88,6 +89,7 @@ T3000_SCHEMA = vol.Schema({vol.Optional("devices", default={}): {vol.Coerce(int)
                                                                                       vol.Optional("exclude_from_sheets", default=False): cv.boolean})],
                            # Nightly read of every readable controller's programs; changes made outside this panel are reported.
                            vol.Optional("program_watch", default=True): cv.boolean,
+                           vol.Optional("alarm_poll_s", default=60): vol.All(vol.Coerce(int), vol.Range(min=0, max=3600)),
                            vol.Optional("program_watch_time", default="02:30:00"): cv.time})
 
 CONFIG_SCHEMA = vol.Schema({
@@ -103,7 +105,51 @@ CONFIG_SCHEMA = vol.Schema({
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     conf = config.get(DOMAIN)
     if conf is None:
+        return True  # set up from the UI (config entry) instead
+    hass.data.setdefault(f"{DOMAIN}_yaml", True)
+    return await _async_setup_core(hass, conf, config)
+
+
+async def async_setup_entry(hass: HomeAssistant, entry) -> bool:
+    """UI configuration. When YAML configuration exists it wins and the entry only says so."""
+    if hass.data.get(f"{DOMAIN}_yaml"):
+        _LOGGER.warning("BAS Wire Sheet is configured in YAML; the settings of the UI entry are not used")
         return True
+    from .config_flow import options_to_conf
+    conf = CONFIG_SCHEMA({DOMAIN: options_to_conf(dict(entry.options))})[DOMAIN]
+    if DOMAIN in hass.data:  # already running (options changed): apply the new settings in place
+        _apply_conf(hass, conf)
+    else:
+        await _async_setup_core(hass, conf, {})
+    entry.async_on_unload(entry.add_update_listener(_entry_updated))
+    return True
+
+
+async def _entry_updated(hass: HomeAssistant, entry) -> None:
+    from .config_flow import options_to_conf
+    _apply_conf(hass, CONFIG_SCHEMA({DOMAIN: options_to_conf(dict(entry.options))})[DOMAIN])
+
+
+async def async_unload_entry(hass: HomeAssistant, entry) -> bool:
+    return True  # the panel stays registered until Home Assistant restarts; new settings apply on reload
+
+
+def _apply_conf(hass: HomeAssistant, conf: dict) -> None:
+    """Access and controller settings take effect at once (they are read on every command)."""
+    data = hass.data[DOMAIN]
+    data["conf"] = conf
+    t3000_policy.set_site_patterns(conf.get("t3000", {}).get("locked_equipment", []))
+    from .validation import set_excluded_equipment
+    set_excluded_equipment(conf.get("t3000", {}).get("locked_equipment", []))
+    watch = data.get("alarm_watch")
+    if watch is not None:
+        watch.stop()
+        watch.interval_s = conf.get("t3000", {}).get("alarm_poll_s", 60)
+        watch.start()
+    data.pop("t3_settings", None)
+
+
+async def _async_setup_core(hass: HomeAssistant, conf: dict, config: ConfigType) -> bool:
     await hass.async_add_executor_job(load_catalog)
     await hass.async_add_executor_job(load_runtime)
     repo = SheetRepository(hass)
@@ -144,6 +190,35 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     watch = ProgramWatch(hass)
     await watch.async_load()
     data["watch"] = watch
+    snapshots = SnapshotStore(hass)
+    await snapshots.async_load()
+    data["snapshots"] = snapshots
+
+    def _alarm_devices() -> list[dict]:
+        out = []
+        for d in t3000.list_devices(hass, conf.get("t3000", {})):
+            if (_t3_effective(hass, d["instance"]) or {}).get("allow_program_read"):
+                out.append(d)
+        return out
+
+    async def _alarm_run(instance: int, fn):
+        return await _t3_run(hass, instance, _t3_require(hass, instance), fn)
+
+    alarm_watch = AlarmWatch(hass, _alarm_devices, _alarm_run, repo.add_audit, conf.get("t3000", {}).get("alarm_poll_s", 60))
+    data["alarm_watch"] = alarm_watch
+    @callback
+    def _alarms_start(_event=None) -> None:
+        alarm_watch.start()
+
+    @callback
+    def _alarms_stop(_event=None) -> None:
+        alarm_watch.stop()
+
+    if hass.state is CoreState.running:
+        _alarms_start()
+    else:
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _alarms_start)
+    hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _alarms_stop)
     t3conf = conf.get("t3000", {})
     if t3conf.get("program_watch", True):
         at = t3conf.get("program_watch_time")
@@ -177,7 +252,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                     ws_t3_code_check, ws_t3_code_apply, ws_t3_code_restore, ws_t3_program_state, ws_t3_point_write, ws_t3_point_table,
                     ws_t3_discover, ws_sheet_access, ws_live_states, ws_history, ws_point_history,
                     ws_program_watch_status, ws_program_watch_run, ws_sheet_run, ws_sheet_run_status, ws_templates, ws_program_export, ws_t3_point_config, ws_t3_point_config_write,
-                    ws_t3_schedules, ws_t3_schedule_get, ws_t3_schedule_set, ws_t3_pids, ws_t3_pid_set, ws_t3_settings, ws_t3_port_set, ws_t3_send_check, ws_t3_send_apply):
+                    ws_t3_schedules, ws_t3_schedule_get, ws_t3_schedule_set, ws_t3_pids, ws_t3_pid_set, ws_t3_settings, ws_t3_port_set, ws_t3_send_check, ws_t3_send_apply, ws_t3_snapshot_take, ws_t3_job, ws_t3_snapshots,
+                    ws_t3_snapshot_compare, ws_t3_snapshot_download, ws_t3_snapshot_update, ws_t3_snapshot_restore, ws_t3_alarms, ws_t3_alarm_set,
+                    ws_t3_monitors, ws_t3_point_values):
         websocket_api.async_register_command(hass, handler)
     return True
 
@@ -625,8 +702,8 @@ async def ws_t3_point_table(hass, connection, msg):
         if client.identify() != instance:
             raise t3000_bacnet.UploadRefused("Wrong controller at this address")
         rows = []
-        for i in range(1, t3000_points.KINDS[kind][2] + 1):
-            d = t3000_points.decode(kind, t3000_points.read_struct(client, kind, i))
+        for i, raw in enumerate(t3000_points.read_all(client, kind), start=1):
+            d = t3000_points.decode(kind, raw)
             d.pop("value_raw", None)
             rows.append({"category": kind, "index": i, **d})
         return rows
@@ -685,6 +762,276 @@ async def ws_t3_port_set(hass, connection, msg):
                                  "detail": f"{port}: {b['mode']} {b['baud']} -> {a['mode']} {a['baud']}"})
     hass.data[DOMAIN].setdefault("t3_settings", {}).pop(instance, None)
     connection.send_result(msg["id"], result)
+
+
+# ---------------- controller backups (snapshots) ----------------
+
+def _snap(hass) -> SnapshotStore:
+    return hass.data[DOMAIN]["snapshots"]
+
+
+async def _run_snapshot_job(hass, job: dict, instance: int, by: str, note: str, reason: str) -> dict:
+    def progress(n):
+        job["done"] = n
+
+    cfg = _t3_require(hass, instance)
+    snap = await _t3_run(hass, instance, cfg, lambda c: t3000_snapshot.take(c, instance, progress))
+    snap.update({"by": by, "note": note, "reason": reason})
+    return await _snap(hass).add(snap)
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_snapshot_take", vol.Required("instance"): int,
+                                  vol.Optional("note", default=""): vol.All(str, vol.Length(max=200))})
+@websocket_api.async_response
+async def ws_t3_snapshot_take(hass, connection, msg):
+    """Start a full read of the controller in the background. Read only on the controller."""
+    if not _require_editor(hass, connection, msg):
+        return
+    instance = msg["instance"]
+    try:
+        _t3_require(hass, instance)
+    except T3_ERRORS as err:
+        connection.send_error(msg["id"], "t3000", str(err))
+        return
+    store = _snap(hass)
+    if any(j["instance"] == instance and j["state"] == "running" for j in store.jobs.values()):
+        connection.send_error(msg["id"], "busy", "A backup or restore of this controller is already running")
+        return
+    job = store.new_job(instance, "snapshot", t3000_snapshot.count_steps())
+    by = _user_label(connection)
+
+    async def run():
+        try:
+            snap = await _run_snapshot_job(hass, job, instance, by, msg["note"], "manual")
+            job.update(state="done", result={"id": snap["id"]})
+            await _repo(hass).add_audit({"by": by, "action": "snapshot", "target": f"t3000:{instance}", "ok": True, "detail": f"Full backup {snap['id']}"})
+        except Exception as err:  # noqa: BLE001 - reported to the panel through the job
+            job.update(state="failed", error=str(err))
+            await _repo(hass).add_audit({"by": by, "action": "snapshot", "target": f"t3000:{instance}", "ok": False, "detail": f"Full backup failed: {err}"})
+
+    hass.async_create_task(run())
+    connection.send_result(msg["id"], {"job": job["id"], "total": job["total"]})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_job", vol.Required("job"): str})
+@callback
+def ws_t3_job(hass, connection, msg):
+    job = _snap(hass).jobs.get(msg["job"])
+    if not job:
+        connection.send_error(msg["id"], "not_found", "Unknown job")
+        return
+    connection.send_result(msg["id"], {k: job[k] for k in ("id", "instance", "kind", "done", "total", "state", "result", "error")})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_snapshots", vol.Required("instance"): int})
+@callback
+def ws_t3_snapshots(hass, connection, msg):
+    store = _snap(hass)
+    running = [{k: j[k] for k in ("id", "kind", "done", "total", "state")} for j in store.jobs.values() if j["instance"] == msg["instance"] and j["state"] == "running"]
+    connection.send_result(msg["id"], {"snapshots": list(reversed(store.list(msg["instance"]))), "jobs": running})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_snapshot_compare", vol.Required("instance"): int,
+                                  vol.Required("before"): str, vol.Required("after"): str})
+@websocket_api.async_response
+async def ws_t3_snapshot_compare(hass, connection, msg):
+    try:
+        a, b = _snap(hass).get(msg["instance"], msg["before"]), _snap(hass).get(msg["instance"], msg["after"])
+    except KeyError as err:
+        connection.send_error(msg["id"], "not_found", str(err))
+        return
+    changes = await hass.async_add_executor_job(t3000_snapshot.compare, a, b, t3000_toolchain.decompile)
+    connection.send_result(msg["id"], {"changes": changes, "before": {"id": a["id"], "taken_at": a["taken_at"]}, "after": {"id": b["id"], "taken_at": b["taken_at"]}})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_snapshot_download", vol.Required("instance"): int, vol.Required("snapshot"): str})
+@callback
+def ws_t3_snapshot_download(hass, connection, msg):
+    try:
+        connection.send_result(msg["id"], _snap(hass).get(msg["instance"], msg["snapshot"]))
+    except KeyError as err:
+        connection.send_error(msg["id"], "not_found", str(err))
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_snapshot_update", vol.Required("instance"): int, vol.Required("snapshot"): str,
+                                  vol.Optional("note"): vol.All(str, vol.Length(max=200)), vol.Optional("pinned"): bool,
+                                  vol.Optional("delete", default=False): bool})
+@websocket_api.async_response
+async def ws_t3_snapshot_update(hass, connection, msg):
+    if not _require_editor(hass, connection, msg):
+        return
+    store = _snap(hass)
+    try:
+        store.get(msg["instance"], msg["snapshot"])
+        if msg["delete"]:
+            await store.delete(msg["instance"], msg["snapshot"])
+        else:
+            await store.update(msg["instance"], msg["snapshot"], **{k: msg[k] for k in ("note", "pinned") if k in msg})
+    except KeyError as err:
+        connection.send_error(msg["id"], "not_found", str(err))
+        return
+    connection.send_result(msg["id"], {"ok": True})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_snapshot_restore", vol.Required("instance"): int, vol.Required("snapshot"): str,
+                                  vol.Required("items"): vol.All([str], vol.Length(min=1, max=400)), vol.Required("confirm"): str})
+@websocket_api.async_response
+async def ws_t3_snapshot_restore(hass, connection, msg):
+    """Write selected items of a backup back to the controller. A fresh full backup is taken first."""
+    if not _require_editor(hass, connection, msg):
+        return
+    instance = msg["instance"]
+    cfg = _t3_effective(hass, instance) or {}
+    if cfg.get("access") != "full":
+        connection.send_error(msg["id"], "not_allowed", f"Restoring needs full access (device {instance})")
+        return
+    if msg["confirm"].strip().upper() != "RESTORE":
+        connection.send_error(msg["id"], "not_allowed", "Type RESTORE to confirm")
+        return
+    store = _snap(hass)
+    try:
+        snap = store.get(instance, msg["snapshot"])
+    except KeyError as err:
+        connection.send_error(msg["id"], "not_found", str(err))
+        return
+    t3conf = hass.data[DOMAIN]["conf"].get("t3000", {})
+    devcfg = t3000_policy.device_configs(t3conf).get(instance)
+    texts = _t3_point_texts(hass, instance)
+    for item in msg["items"]:
+        kind, _, num = item.partition(":")
+        if kind not in t3000_snapshot.RESTORABLE or not num.isdigit():
+            connection.send_error(msg["id"], "invalid", f"Cannot restore {item}")
+            return
+        if kind in ("OUT", "IN", "VAR"):
+            status, reason = t3000_policy.protection(devcfg, kind, int(num), f"{kind}{num} {texts.get(f'{kind}{num}', '')}", bool(t3conf.get("unlock_protected_points")))
+            if status == "locked":
+                connection.send_error(msg["id"], "not_allowed", f"{kind}{num} is locked ({reason})")
+                return
+    if any(j["instance"] == instance and j["state"] == "running" for j in store.jobs.values()):
+        connection.send_error(msg["id"], "busy", "A backup or restore of this controller is already running")
+        return
+    job = store.new_job(instance, "restore", t3000_snapshot.count_steps() + len(msg["items"]))
+    by = _user_label(connection)
+
+    async def run():
+        results = []
+        try:
+            pre = await _run_snapshot_job(hass, job, instance, by, f"Before restoring {snap['id']}", "pre-restore")
+            for item in msg["items"]:
+                try:
+                    r = await _t3_run(hass, instance, cfg, lambda c, item=item: t3000_snapshot.restore_item(
+                        c, instance, snap, item, cfg["program_write_slots"], t3000_import.logic_digest))
+                except T3_ERRORS as err:
+                    r = {"ok": False, "item": item, "error": str(err)}
+                results.append(r)
+                job["done"] += 1
+                if item.startswith("program:") and r.get("ok"):
+                    await _panel_changed(hass, instance, int(item.split(":")[1]))
+            ok = all(r.get("ok") for r in results)
+            job.update(state="done", result={"results": results, "pre_restore": pre["id"], "ok": ok})
+            await _repo(hass).add_audit({"by": by, "action": "snapshot_restore", "target": f"t3000:{instance}", "ok": ok,
+                                         "detail": f"Restored from {snap['id']}: " + ", ".join(f"{r['item']}{'' if r.get('ok') else ' FAILED'}" for r in results)
+                                         + f" (backup before restore: {pre['id']})"})
+        except Exception as err:  # noqa: BLE001
+            job.update(state="failed", error=str(err), result={"results": results})
+            await _repo(hass).add_audit({"by": by, "action": "snapshot_restore", "target": f"t3000:{instance}", "ok": False, "detail": f"Restore failed: {err}"})
+
+    hass.async_create_task(run())
+    connection.send_result(msg["id"], {"job": job["id"], "total": job["total"]})
+
+
+# ---------------- controller alarms and monitors ----------------
+
+def _t3_device_id(hass, instance: int) -> str | None:
+    for d in t3000.list_devices(hass, hass.data[DOMAIN]["conf"].get("t3000", {})):
+        if d["instance"] == instance:
+            return d["device_id"]
+    return None
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_alarms", vol.Required("instance"): int})
+@websocket_api.async_response
+async def ws_t3_alarms(hass, connection, msg):
+    instance = msg["instance"]
+    watch = hass.data[DOMAIN]["alarm_watch"]
+    try:
+        _t3_require(hass, instance)
+    except T3_ERRORS as err:
+        connection.send_error(msg["id"], "t3000", str(err))
+        return
+    name = next((d["name"] for d in t3000.list_devices(hass, hass.data[DOMAIN]["conf"].get("t3000", {})) if d["instance"] == instance), str(instance))
+    alarms = await watch.refresh(instance, name)
+    latest = watch.latest.get(instance, {})
+    if alarms is None:
+        connection.send_error(msg["id"], "t3000", latest.get("error") or "No reply")
+        return
+    connection.send_result(msg["id"], {"alarms": alarms, "poll_s": watch.interval_s, "sensor": f"sensor.bas_wiresheet_t3_{instance}_alarms"})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_alarm_set", vol.Required("instance"): int,
+                                  vol.Required("index"): vol.All(int, vol.Range(min=1, max=16)), vol.Required("action"): vol.In(["acknowledge", "delete"])})
+@websocket_api.async_response
+async def ws_t3_alarm_set(hass, connection, msg):
+    if not _require_editor(hass, connection, msg):
+        return
+    instance = msg["instance"]
+    cfg = _t3_effective(hass, instance) or {}
+    if cfg.get("access") != "full":
+        connection.send_error(msg["id"], "not_allowed", f"Alarms can be acknowledged only with full access (device {instance})")
+        return
+    try:
+        result = await _t3_run(hass, instance, cfg, lambda c: t3000_alarms.set_alarm(c, instance, msg["index"], msg["action"]))
+    except T3_ERRORS as err:
+        connection.send_error(msg["id"], "t3000", str(err))
+        return
+    from homeassistant.components import persistent_notification
+    persistent_notification.async_dismiss(hass, f"bas_wiresheet_t3_alarm_{instance}_{msg['index']}")
+    await _repo(hass).add_audit({"by": _user_label(connection), "action": "alarm", "target": f"t3000:{instance}", "ok": True,
+                                 "detail": f"Alarm {msg['index']} {msg['action']}d"})
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_monitors", vol.Required("instance"): int})
+@websocket_api.async_response
+async def ws_t3_monitors(hass, connection, msg):
+    instance = msg["instance"]
+    try:
+        cfg = _t3_require(hass, instance)
+        monitors = await _t3_run(hass, instance, cfg, lambda c: t3000_alarms.read_monitors(c, instance))
+    except T3_ERRORS as err:
+        connection.send_error(msg["id"], "t3000", str(err))
+        return
+    points = {f"{r['category']}{r['index']}": r for r in (t3000.list_points(hass, hass.data[DOMAIN]["conf"].get("t3000", {}),
+                                                                          _t3_device_id(hass, instance))["points"] if _t3_device_id(hass, instance) else [])}
+    for m in monitors:
+        m["entities"] = {p: points[p]["entity_id"] for p in m["inputs"] if p in points}
+    connection.send_result(msg["id"], {"monitors": monitors})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_point_values", vol.Required("instance"): int,
+                                  vol.Required("points"): vol.All([vol.All(str, vol.Upper, vol.Match(r"^(IN|OUT|VAR)[1-9]\d{0,2}$"))], vol.Length(max=60))})
+@websocket_api.async_response
+async def ws_t3_point_values(hass, connection, msg):
+    """Read only: current value, auto/manual and label of the listed points, straight from the controller."""
+    instance = msg["instance"]
+
+    def read(client):
+        if client.identify() != instance:
+            raise t3000_bacnet.UploadRefused("Wrong controller at this address")
+        out = {}
+        for name in dict.fromkeys(msg["points"]):
+            kind = re.match(r"^(IN|OUT|VAR)", name).group(1)
+            d = t3000_points.decode(kind, t3000_points.read_struct(client, kind, int(name[len(kind):])))
+            out[name] = {"value": d["value"], "digital": d["digital_analog"] == "digital", "manual": d["auto_manual"] == "manual", "label": d["label"]}
+        return out
+
+    try:
+        cfg = _t3_require(hass, instance)
+        values = await _t3_run(hass, instance, cfg, read)
+    except (*T3_ERRORS, ValueError) as err:
+        connection.send_error(msg["id"], "t3000", str(err))
+        return
+    connection.send_result(msg["id"], {"values": values, "at": time.time()})
 
 
 def _local_year(hass) -> int:
@@ -1747,7 +2094,8 @@ def ws_history(hass, connection, msg):
             parts = t.split(":")
             inst = int(parts[1]) if parts[1].isdigit() else None
             label = f"{names.get(inst, 'Controller')} ({parts[1]})"
-            r["target_label"] = f"{label} · program {parts[2]}" if parts[2].isdigit() else f"{label} · {parts[2]}"
+            sub = parts[2] if len(parts) > 2 else ""
+            r["target_label"] = f"{label} · program {sub}" if sub.isdigit() else f"{label} · {sub}" if sub else label
         else:
             r["target_label"] = t or None
     rows.sort(key=lambda r: r.get("at") or "", reverse=True)

@@ -39,6 +39,24 @@ def header(total: int, command: int, slot: int, entity: int) -> bytes:
     return HEADER.pack(total, command, slot, slot, entity)
 
 
+def read_range(client, command: int, start: int, count: int, size: int, group: int) -> list[bytes]:
+    """Read count records of size bytes from index start, `group` records per request (as T3000 does).
+
+    Verified on T3-BB firmware: a range read returns exactly the same records as single reads."""
+    out: list[bytes] = []
+    i = start
+    while i < start + count:
+        end = min(i + group, start + count) - 1
+        data = client._private(HEADER.pack(PRIVATE_LEN, command, i, end, size))
+        n = end - i + 1
+        if len(data) != PRIVATE_LEN + n * size or data[2] != command or data[3] != i or data[4] != end:
+            raise BacnetError(f"Unexpected reply reading records {i + 1}-{end + 1} of table {command}")
+        body = data[PRIVATE_LEN:]
+        out.extend(body[k * size:(k + 1) * size] for k in range(n))
+        i = end + 1
+    return out
+
+
 def code_entity(packet: int) -> int:
     return PACKET | (packet << 9)
 

@@ -1,0 +1,105 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "BAS Wire Sheet for TEMCO",
+        "description": "Needs the BACnet IP integration with your TEMCO controllers added, and UDP 47808 open from Home Assistant to each controller. More settings (per controller, MS/TP routers, Node-RED) are under Configure after setup.",
+        "data": {
+          "full_access_all_devices": "Full access to every TEMCO controller",
+          "admins_are_editors": "Administrators can edit"
+        },
+        "data_description": {
+          "full_access_all_devices": "All program slots and every point, physical outputs included. Off: restricted mode (configure each controller under Configure > Controller)."
+        }
+      }
+    },
+    "abort": {
+      "configured_in_yaml": "BAS Wire Sheet is configured in YAML (bas_wiresheet: in configuration.yaml). Remove it there to configure it here.",
+      "single_instance_allowed": "BAS Wire Sheet is already set up. Use Configure to change its settings."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "BAS Wire Sheet settings",
+        "menu_options": {
+          "general": "General and access",
+          "controller": "A controller",
+          "locked": "Locked equipment",
+          "nodered": "Node-RED (optional)"
+        }
+      },
+      "general": {
+        "title": "General and access",
+        "data": {
+          "admins_are_editors": "Administrators can edit",
+          "editors": "Other editors (user IDs)",
+          "full_access_all_devices": "Full access to every TEMCO controller",
+          "unlock_protected_points": "Unlock protected points",
+          "program_watch": "Nightly program watch",
+          "program_watch_time": "Program watch time",
+          "alarm_poll_s": "Controller alarm reading interval",
+          "mstp_routers": "MS/TP routers"
+        },
+        "data_description": {
+          "unlock_protected_points": "Safety points (interlock, freeze, high/low limit, fire, smoke …) and locked equipment become writable. Leave off unless you decided so.",
+          "alarm_poll_s": "0 turns background alarm reading off.",
+          "mstp_routers": "One per line: network=router IP, for example 2001=192.0.2.20",
+          "program_watch_time": "A change of this time applies after a restart."
+        }
+      },
+      "controller": {
+        "title": "Controller",
+        "description": "Choose a TEMCO controller or type its BACnet device instance.",
+        "data": {
+          "instance": "Controller"
+        }
+      },
+      "controller_settings": {
+        "title": "Controller {instance}",
+        "data": {
+          "access": "Access",
+          "allow_program_read": "Read programs, schedules, PID loops and backups",
+          "allow_point_writes": "Allow point writes",
+          "program_write_slots": "Writable program slots (restricted access)",
+          "sandbox": "Sandbox points (restricted access)",
+          "locked": "Never writable points",
+          "model": "Model",
+          "address": "Address (optional)",
+          "remove": "Remove these settings"
+        },
+        "data_description": {
+          "program_write_slots": "For example 15, 16",
+          "sandbox": "For example VAR120-128, OUT60-64",
+          "locked": "For example OUT1-10 (applies in every mode)",
+          "address": "Only if Home Assistant does not know it: 192.0.2.10, or for MS/TP 192.0.2.20/2001:5 (router / network:MAC)"
+        }
+      },
+      "locked": {
+        "title": "Locked equipment",
+        "data": {
+          "locked_equipment": "Equipment"
+        },
+        "data_description": {
+          "locked_equipment": "One per line: Name: regular expression matched against point labels, entity IDs and programs. For example  Boiler 2 commissioning: blr[_ -]?2"
+        }
+      },
+      "nodered": {
+        "title": "Node-RED (optional)",
+        "description": "Only needed to run monitoring sheets in Node-RED. Leave the URL empty to turn it off.",
+        "data": {
+          "url": "Node-RED URL",
+          "ha_server_id": "Home Assistant server node ID in Node-RED",
+          "auth": "Authentication",
+          "username": "Username",
+          "password": "Password",
+          "verify_ssl": "Verify SSL certificate"
+        }
+      }
+    },
+    "error": {
+      "bad_router": "Use network=router IP, one per line",
+      "bad_pattern": "One of the patterns is not a valid regular expression"
+    }
+  }
+}

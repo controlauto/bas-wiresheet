@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { fmtAge, fmtTime, FRESH_CLASS } from "./model.js";
-import { Schedules, PidLoops, Ports } from "./ExplorerTables.jsx";
+import { Schedules, PidLoops, Ports, Alarms, Monitors, Backups } from "./ExplorerTables.jsx";
+import { TrendChart } from "./Extras.jsx";
 
 const TABS = [
   { id: "IN", label: "Inputs" },
@@ -10,6 +11,9 @@ const TABS = [
   { id: "PID", label: "PID Loops" },
   { id: "PRG", label: "Programs" },
   { id: "PORT", label: "Ports" },
+  { id: "ALM", label: "Alarms" },
+  { id: "MON", label: "Trend Logs" },
+  { id: "BAK", label: "Backups" },
 ];
 const PORT_LABEL = {
   "physical-digital": "Digital (physical)",
@@ -30,6 +34,65 @@ function ImportResult({ result, onOpenSheet }) {
       {r.notes.map((n) => <div className="muted small" key={n}>{n}</div>)}
       <p className="muted small">This sheet documents the program. It cannot be loaded back to a controller.</p>
       <button className="btn primary" onClick={() => onOpenSheet(result.sheet_id)} data-testid="t3-open-sheet">Open Wire Sheet</button>
+    </div>
+  );
+}
+
+/* Program listing with the live value of every point, local variable and timer it uses (read from the controller). */
+const POINT_TOKEN = /\b(IN|OUT|VAR)([1-9]\d{0,2})\b/g;
+export function LiveListing({ ws, device, view, labels }) {
+  const [on, setOn] = useState(false);
+  const [vals, setVals] = useState({});
+  const [state, setState] = useState(null);
+  const [err, setErr] = useState(null);
+  const [at, setAt] = useState(null);
+  const lines = useMemo(() => String(view.listing || "").split(/\r?\n/).filter((l) => l.trim()), [view.listing]);
+  const byLabel = labels || {};
+  const pointsOf = (line) => {
+    const found = [...line.matchAll(POINT_TOKEN)].map((m) => `${m[1]}${m[2]}`);
+    for (const [lab, pt] of Object.entries(byLabel)) if (new RegExp(`\\b${lab.replace(/[^A-Za-z0-9_]/g, "")}\\b`).test(line)) found.push(pt);
+    return [...new Set(found)];
+  };
+  const all = useMemo(() => [...new Set(lines.flatMap(pointsOf))].slice(0, 60), [lines]); // eslint-disable-line
+  useEffect(() => {
+    if (!on) return undefined;
+    let stop = false;
+    const poll = async () => {
+      try {
+        if (all.length) { const r = await ws({ type: "bas_wiresheet/t3_point_values", instance: device.instance, points: all }); if (!stop) { setVals(r.values); setAt(Date.now()); } }
+        const st = await ws({ type: "bas_wiresheet/t3_program_state", instance: device.instance, slot: view.program });
+        if (!stop) { setState(st); setErr(null); }
+      } catch (e) { if (!stop) setErr(e.message); }
+    };
+    poll();
+    const h = setInterval(poll, 5000);
+    return () => { stop = true; clearInterval(h); };
+  }, [on, device.instance, view.program, all.join(",")]); // eslint-disable-line
+  const fmt = (v) => (!v ? "?" : v.digital ? (v.value ? "ON" : "OFF") : Number(v.value.toFixed(3)));
+  const locals = (state && state.locals) || {};
+  return (
+    <div className="box" data-testid="t3-live-listing">
+      <div className="box-h row" style={{ gap: 8, alignItems: "center" }}>
+        <span>Program {view.program} · Live Values</span>
+        <button className={`btn sm ${on ? "primary" : ""}`} onClick={() => setOn(!on)} data-testid="t3-live-toggle">{on ? "Stop" : "Show Live Values"}</button>
+        {on && at && <span className="muted small">updated {new Date(at).toLocaleTimeString()} · every 5 s · read only</span>}
+        {on && state && <span className={`chip ${state.on ? "ok" : "unk"}`}>{state.on ? "Running" : "Stopped"}</span>}
+      </div>
+      {err && <div className="errtxt small">{err}</div>}
+      <div className="live-code mono small">
+        {lines.map((line, i) => {
+          const pts = pointsOf(line);
+          const locs = Object.keys(locals).filter((n) => new RegExp(`\\b${n.replace(/[^A-Za-z0-9_]/g, "")}\\b`).test(line));
+          return (
+            <div key={i} className="lc-line" data-testid={`t3-live-line-${i}`}>
+              <span className="lc-code">{line}</span>
+              {on && <span className="lc-vals">{pts.map((p) => <span key={p} className={`lc-v ${vals[p] && vals[p].manual ? "man" : ""}`} title={vals[p] && vals[p].manual ? "Manual" : ""}>{p}={fmt(vals[p])}</span>)}
+                {locs.map((n) => <span key={n} className="lc-v loc">{n}={String(locals[n])}</span>)}</span>}
+            </div>
+          );
+        })}
+      </div>
+      {on && state && Object.keys(state.timers || {}).length > 0 && <div className="small" style={{ marginTop: 6 }} data-testid="t3-live-timers"><b>Timers</b> {Object.entries(state.timers).map(([k, t]) => <span key={k} className="lc-v tmr">{k}: {t.on ? "ON" : "OFF"} for {t.elapsed_s} s</span>)}</div>}
     </div>
   );
 }
@@ -291,7 +354,7 @@ function Discovery({ ws, onClose }) {
   );
 }
 
-function Programs({ ws, device, role, onOpenSheet }) {
+function Programs({ ws, device, role, onOpenSheet, labels }) {
   const [list, setList] = useState(null);
   const [view, setView] = useState(null);
   const [err, setErr] = useState(null);
@@ -336,6 +399,7 @@ function Programs({ ws, device, role, onOpenSheet }) {
           const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([view.listing.replace(/\r?\n/g, "\r\n")], { type: "text/plain" }));
           a.download = `${device.instance}-PRG${String(view.program).padStart(2, "0")}.txt`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
         }} title="T3000 program editor > Load File">Download .txt (T3000)</button>}
+        {!view.empty && <LiveListing ws={ws} device={device} view={view} labels={labels} />}
         {!view.empty && view.listing_safe === false && <div className="errtxt" data-testid="t3-listing-unsafe">T3000's listing of this program does not compile back to the same logic. Do not open and save it in T3000. Editing is disabled.</div>}
         {!view.empty && canEdit && <CodeEditor key={view.program} ws={ws} device={device} view={view} onDone={() => run(async () => setView(await ws({ type: "bas_wiresheet/t3_program_read", instance: device.instance, slot: view.program })))} />}</div>}
     </div>
@@ -438,9 +502,14 @@ export default function Explorer({ hass, role, onOpenSheet }) {
         {discover ? <Discovery ws={ws} onClose={() => setDiscover(false)} />
           : tab === "SCH" && selDev ? (selDev.programs && selDev.programs.read ? <Schedules ws={ws} device={selDev} canWrite={canWrite && fullAccess} /> : <div className="muted pad">Reading from this controller is not enabled.</div>)
           : tab === "PID" && selDev ? (selDev.programs && selDev.programs.read ? <PidLoops ws={ws} device={selDev} canWrite={canWrite && fullAccess} /> : <div className="muted pad">Reading from this controller is not enabled.</div>)
+          : ["ALM", "MON", "BAK"].includes(tab) && selDev && !(selDev.programs && selDev.programs.read) ? <div className="muted pad">Reading from this controller is not enabled.</div>
+          : tab === "ALM" && selDev ? <Alarms ws={ws} device={selDev} canWrite={canWrite && fullAccess} />
+          : tab === "MON" && selDev ? <Monitors ws={ws} device={selDev} TrendChart={TrendChart} />
+          : tab === "BAK" && selDev ? <Backups ws={ws} device={selDev} canWrite={role === "editor"} canRestore={canWrite && fullAccess} />
           : tab === "PORT" && selDev ? (selDev.programs && selDev.programs.read ? <Ports ws={ws} device={selDev} canWrite={canWrite && fullAccess} /> : <div className="muted pad">Reading from this controller is not enabled.</div>)
           : tab === "PRG" ? (
-          <Programs ws={ws} role={role} onOpenSheet={onOpenSheet} device={(devices || []).find((d) => d.device_id === sel)} />
+          <Programs ws={ws} role={role} onOpenSheet={onOpenSheet} device={(devices || []).find((d) => d.device_id === sel)}
+            labels={Object.fromEntries(((data && data.points) || []).filter((p) => p.label && /^[A-Za-z][A-Za-z0-9_]*$/.test(p.label) && p.label.toUpperCase() !== `${p.category}${p.index}`).map((p) => [p.label.toUpperCase(), `${p.category}${p.index}`]))} />
         ) : direct && selDev ? <ControllerPoints ws={ws} instance={selDev.instance} kind={tab} canControl={canWrite && fullAccess} filter={filter} /> : (
           <div className="xp-tablewrap">
             <table className="points xp-table" data-testid="t3-table">

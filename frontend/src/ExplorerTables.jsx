@@ -279,3 +279,158 @@ export function Ports({ ws, device, canWrite }) {
     </div>
   );
 }
+
+const fmtWhen = (iso) => (iso ? new Date(iso).toLocaleString() : "—");
+
+/* ---------------- controller alarm log ---------------- */
+export function Alarms({ ws, device, canWrite }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const load = () => ws({ type: "bas_wiresheet/t3_alarms", instance: device.instance }).then((r) => { setData(r); setErr(null); }).catch((e) => setErr(e.message));
+  useEffect(() => { setData(null); load(); const h = setInterval(load, 30000); return () => clearInterval(h); }, [device.instance]); // eslint-disable-line
+  const act = async (index, action) => {
+    setBusy(true); setErr(null);
+    try { await ws({ type: "bas_wiresheet/t3_alarm_set", instance: device.instance, index, action }); await load(); } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+  const active = data ? data.alarms.filter((a) => a.active) : [];
+  return (
+    <div className="pad xp-scroll" data-testid="t3-alarms">
+      <div className="row" style={{ gap: 8, alignItems: "center" }}>
+        <h3 style={{ margin: 0 }}>Controller Alarms</h3>
+        {data && <span className={`chip ${active.length ? "bad" : "ok"}`} data-testid="t3-alarm-count">{active.length ? `${active.length} active` : "No active alarms"}</span>}
+        <button className="btn sm" onClick={load}>Read Again</button>
+      </div>
+      <p className="muted small">The controller's own alarm log (16 entries), raised by its firmware (for example open or short-circuited inputs) or by programs (ALARM statements). {data && (data.poll_s ? <>Home Assistant reads it every {data.poll_s} s, sends a notification for each new alarm and keeps <span className="mono">{data.sensor}</span> (number of active alarms).</> : "Background reading is off (alarm_poll_s: 0).")}</p>
+      {err && <div className="errtxt">{err}</div>}
+      {!data && !err && <div className="muted">Reading the alarm log…</div>}
+      {data && (data.alarms.length ? <table className="points" data-testid="t3-alarm-table"><thead><tr><th>#</th><th>Message</th><th>Raised</th><th>Source</th><th>State</th><th /></tr></thead>
+        <tbody>{data.alarms.map((a) => (
+          <tr key={a.index} className={a.active && !a.acknowledged ? "alarm-row" : ""} data-testid={`t3-alarm-${a.index}`}>
+            <td className="mono">{a.index}</td><td>{a.message}</td><td className="small">{fmtWhen(a.time)}</td>
+            <td className="small">{a.source === "firmware" ? "Controller firmware" : a.program ? `Program ${a.program}` : "Program"}{a.point ? ` · ${a.point}` : ""}</td>
+            <td>{a.active ? (a.acknowledged ? <span className="chip dq">Acknowledged</span> : <span className="chip bad">Active</span>) : a.restored ? <span className="chip ok">Restored</span> : <span className="muted">—</span>}</td>
+            <td className="nowrap">{canWrite && <>
+              {a.active && !a.acknowledged && <button className="btn sm" disabled={busy} onClick={() => act(a.index, "acknowledge")} data-testid={`t3-alarm-ack-${a.index}`}>Acknowledge</button>}
+              <button className="btn sm" style={{ marginLeft: 4 }} disabled={busy} onClick={() => act(a.index, "delete")} data-testid={`t3-alarm-del-${a.index}`}>Delete</button></>}</td>
+          </tr>))}</tbody></table>
+        : <div className="muted pad">The alarm log is empty.</div>)}
+    </div>
+  );
+}
+
+/* ---------------- monitors (trend logs) ---------------- */
+export function Monitors({ ws, device, TrendChart }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  const [open, setOpen] = useState(null);
+  useEffect(() => { setData(null); ws({ type: "bas_wiresheet/t3_monitors", instance: device.instance }).then(setData).catch((e) => setErr(e.message)); }, [device.instance]); // eslint-disable-line
+  const used = data ? data.monitors.filter((m) => m.configured) : [];
+  const iv = (s) => (s >= 3600 ? `${(s / 3600).toFixed(s % 3600 ? 1 : 0)} h` : s >= 60 ? `${Math.round(s / 60)} min` : `${s} s`);
+  return (
+    <div className="pad xp-scroll" data-testid="t3-monitors">
+      <h3 style={{ margin: "0 0 4px" }}>Trend Logs (Monitors)</h3>
+      <p className="muted small">The controller's monitors (up to 12, 14 points each). Charts use Home Assistant's recorder history of the same points.</p>
+      {err && <div className="errtxt">{err}</div>}
+      {!data && !err && <div className="muted">Reading the monitors…</div>}
+      {data && !used.length && <div className="muted pad" data-testid="t3-monitors-empty">No monitor is configured on this controller. The points' history is still available from Home Assistant: open a point in Inputs, Outputs or Variables, or use History.</div>}
+      {used.length > 0 && <table className="points" data-testid="t3-monitor-table"><thead><tr><th>#</th><th>Label</th><th>Points</th><th>Interval</th><th>State</th><th /></tr></thead>
+        <tbody>{used.map((m) => (<React.Fragment key={m.index}>
+          <tr><td className="mono">AMON{m.index}</td><td>{m.label || "—"}</td><td className="mono small">{m.inputs.join(", ")}</td><td>{iv(m.interval_s)}</td>
+            <td>{m.on ? <span className="chip ok">Logging</span> : <span className="chip unk">Off</span>}</td>
+            <td><button className="btn sm" onClick={() => setOpen(open === m.index ? null : m.index)} data-testid={`t3-monitor-chart-${m.index}`}>{open === m.index ? "Hide Chart" : "Chart"}</button></td></tr>
+          {open === m.index && <tr><td colSpan={6}>{Object.keys(m.entities).length
+            ? Object.entries(m.entities).map(([p, ent]) => <div key={p}><div className="small mono">{p} · {ent}</div><TrendChart ws={ws} entityId={ent} title={p} /></div>)
+            : <div className="muted small">None of these points has a Home Assistant entity to chart.</div>}</td></tr>}
+        </React.Fragment>))}</tbody></table>}
+    </div>
+  );
+}
+
+/* ---------------- full controller backups ---------------- */
+export function Backups({ ws, device, canWrite, canRestore }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  const [note, setNote] = useState("");
+  const [job, setJob] = useState(null);
+  const [cmp, setCmp] = useState({ before: "", after: "" });
+  const [changes, setChanges] = useState(null);
+  const [pick, setPick] = useState({});
+  const [typed, setTyped] = useState("");
+  const load = () => ws({ type: "bas_wiresheet/t3_snapshots", instance: device.instance }).then((r) => { setData(r); if (r.jobs.length && !job) follow(r.jobs[0].id); }).catch((e) => setErr(e.message));
+  useEffect(() => { setData(null); setChanges(null); load(); }, [device.instance]); // eslint-disable-line
+  const follow = (id) => {
+    const tick = async () => {
+      try {
+        const j = await ws({ type: "bas_wiresheet/t3_job", job: id }); setJob(j);
+        if (j.state === "running") setTimeout(tick, 1500); else load();
+      } catch (e) { setErr(e.message); }
+    };
+    tick();
+  };
+  const take = async () => { setErr(null); try { const r = await ws({ type: "bas_wiresheet/t3_snapshot_take", instance: device.instance, note }); setNote(""); follow(r.job); } catch (e) { setErr(e.message); } };
+  const compare = async (before, after) => {
+    setErr(null); setChanges(null); setPick({}); setCmp({ before, after });
+    try { setChanges(await ws({ type: "bas_wiresheet/t3_snapshot_compare", instance: device.instance, before, after })); } catch (e) { setErr(e.message); }
+  };
+  const download = async (id) => {
+    const s = await ws({ type: "bas_wiresheet/t3_snapshot_download", instance: device.instance, snapshot: id });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(s, null, 1)], { type: "application/json" }));
+    a.download = `t3-${device.instance}-backup-${id}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  };
+  const update = async (id, fields) => { try { await ws({ type: "bas_wiresheet/t3_snapshot_update", instance: device.instance, snapshot: id, ...fields }); load(); } catch (e) { setErr(e.message); } };
+  const restore = async () => {
+    setErr(null);
+    try { const r = await ws({ type: "bas_wiresheet/t3_snapshot_restore", instance: device.instance, snapshot: cmp.before, items: Object.keys(pick).filter((k) => pick[k]), confirm: typed }); setTyped(""); follow(r.job); }
+    catch (e) { setErr(e.message); }
+  };
+  const running = job && job.state === "running";
+  const items = changes ? [...new Set(changes.changes.map((c) => c.item))] : [];
+  const picked = Object.keys(pick).filter((k) => pick[k]);
+  return (
+    <div className="pad xp-scroll" data-testid="t3-backups">
+      <h3 style={{ margin: "0 0 4px" }}>Controller Backups</h3>
+      <p className="muted small">A backup reads the whole controller: 16 programs, all inputs, outputs and variables, PID loops, weekly and annual schedules, monitors and settings (about 2 minutes, read only). Compare two backups to see what changed, and put selected items back. Up to 12 backups per controller are kept; pinned ones are never dropped.</p>
+      {err && <div className="errtxt" data-testid="t3-backup-error">{err}</div>}
+      {canWrite && <div className="row" style={{ gap: 8, alignItems: "flex-end", marginBottom: 8 }}>
+        <label className="field" style={{ margin: 0, flex: 1 }}><span>Note</span><input value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} placeholder="e.g. before summer changeover" data-testid="t3-backup-note" /></label>
+        <button className="btn primary" disabled={running} onClick={take} data-testid="t3-backup-take">Back Up Now</button>
+      </div>}
+      {job && <div className={job.state === "failed" ? "errtxt" : "muted"} data-testid="t3-backup-job">
+        {job.kind === "restore" ? "Restore" : "Backup"}: {job.state === "running" ? <><progress max={job.total} value={job.done} style={{ verticalAlign: "middle" }} /> {Math.round(100 * job.done / job.total)} %</> : job.state === "failed" ? `failed: ${job.error}` : "done"}
+        {job.state === "done" && job.result && job.result.results && <span> · {job.result.results.filter((r) => r.ok).length} of {job.result.results.length} items restored and verified{job.result.ok ? "" : " (see History for the failures)"} · backup taken before restoring: {job.result.pre_restore}</span>}
+      </div>}
+      {data && (data.snapshots.length ? <table className="points" data-testid="t3-backup-table"><thead><tr><th>Taken</th><th>By</th><th>Note</th><th>Programs</th><th>PID</th><th /></tr></thead>
+        <tbody>{data.snapshots.map((s, i) => (
+          <tr key={s.id} data-testid={`t3-backup-${i}`}><td className="small">{fmtWhen(s.taken_at)}{s.pinned ? " 📌" : ""}</td><td className="small">{s.by}{s.reason === "pre-restore" ? " (auto)" : ""}</td><td className="small">{s.note || "—"}</td>
+            <td className="small">{s.programs_used} used · {s.programs_on} on</td><td className="small">{s.pid_used}</td>
+            <td className="nowrap">
+              {i + 1 < data.snapshots.length && <button className="btn sm" onClick={() => compare(data.snapshots[i + 1].id, s.id)} data-testid={`t3-backup-cmp-${i}`} title="Compare with the backup before it">Compare with previous</button>}
+              <button className="btn sm" style={{ marginLeft: 4 }} onClick={() => download(s.id)}>Download</button>
+              {canWrite && <button className="btn sm" style={{ marginLeft: 4 }} onClick={() => update(s.id, { pinned: !s.pinned })}>{s.pinned ? "Unpin" : "Pin"}</button>}
+              {canWrite && <button className="btn sm danger" style={{ marginLeft: 4 }} onClick={() => update(s.id, { delete: true })}>Delete</button>}
+            </td></tr>))}</tbody></table>
+        : <div className="muted pad">No backups of this controller yet.</div>)}
+      {data && data.snapshots.length > 1 && <div className="row" style={{ gap: 8, alignItems: "flex-end", margin: "8px 0" }}>
+        <label className="field" style={{ margin: 0 }}><span>Compare</span><select value={cmp.before} onChange={(e) => setCmp({ ...cmp, before: e.target.value })} data-testid="t3-cmp-before"><option value="">Older backup…</option>{data.snapshots.map((s) => <option key={s.id} value={s.id}>{fmtWhen(s.taken_at)}{s.note ? ` · ${s.note}` : ""}</option>)}</select></label>
+        <label className="field" style={{ margin: 0 }}><span>with</span><select value={cmp.after} onChange={(e) => setCmp({ ...cmp, after: e.target.value })} data-testid="t3-cmp-after"><option value="">Newer backup…</option>{data.snapshots.map((s) => <option key={s.id} value={s.id}>{fmtWhen(s.taken_at)}{s.note ? ` · ${s.note}` : ""}</option>)}</select></label>
+        <button className="btn" disabled={!cmp.before || !cmp.after || cmp.before === cmp.after} onClick={() => compare(cmp.before, cmp.after)} data-testid="t3-cmp-run">Compare</button>
+      </div>}
+      {changes && <div className="box" data-testid="t3-cmp-result">
+        <div className="box-h">{changes.changes.length ? `${changes.changes.length} change(s) from ${fmtWhen(changes.before.taken_at)} to ${fmtWhen(changes.after.taken_at)}` : "No differences"}</div>
+        {changes.changes.length > 0 && <table className="points"><thead><tr>{canRestore && <th>Put back</th>}<th>Item</th><th>Field</th><th>Before</th><th>After</th></tr></thead>
+          <tbody>{changes.changes.map((c, i) => (<React.Fragment key={i}>
+            <tr>{canRestore && <td>{items.indexOf(c.item) >= 0 && changes.changes.findIndex((x) => x.item === c.item) === i && <input type="checkbox" checked={!!pick[c.item]} onChange={(e) => setPick({ ...pick, [c.item]: e.target.checked })} data-testid={`t3-pick-${c.item}`} />}</td>}
+              <td className="mono">{c.item.replace(":", "")}</td><td>{c.field}</td><td className="mono small">{JSON.stringify(c.before)}</td><td className="mono small">{JSON.stringify(c.after)}</td></tr>
+            {c.diff && c.diff.length > 0 && <tr><td colSpan={canRestore ? 5 : 4}><pre className="mono small diff">{c.diff.map((l, k) => <div key={k} className={l[0] === "+" ? "add" : l[0] === "-" ? "del" : l[0] === "@" ? "hunk" : ""}>{l}</div>)}</pre></td></tr>}
+          </React.Fragment>))}</tbody></table>}
+        {canRestore && changes.changes.length > 0 && <div className="row" style={{ gap: 8, alignItems: "flex-end", marginTop: 8 }}>
+          <span className="small">Put the checked items back as they were on <b>{fmtWhen(changes.before.taken_at)}</b>. A new backup is taken first.</span>
+          <label className="field" style={{ margin: 0 }}><span>Type RESTORE</span><input className="mono" style={{ width: 100 }} value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="t3-restore-confirm" /></label>
+          <button className="btn primary" disabled={running || !picked.length || typed.trim().toUpperCase() !== "RESTORE"} onClick={restore} data-testid="t3-restore-run">Restore {picked.length} item(s)</button>
+        </div>}
+      </div>}
+    </div>
+  );
+}
