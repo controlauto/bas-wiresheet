@@ -113,7 +113,14 @@ class _Gen:
         self.work_used: list[str] = []
         self.work_free: list[str] = []
         self.groups: set[str] = set()
+        self.chains: dict[str, tuple[str, list[str]]] = {}
         self.cse: dict[tuple[str, str], str] = {}  # stored expression -> work variable (each is assigned once per scan)
+        # Editable copies of controller programs: conditional assignments are rebuilt in place, in program order
+        # (IF c THEN VAR5 = x), like the hand-written original, instead of one work variable per branch.
+        self.inplace = bool((sheet.get("t3000") or {}).get("work_locals")) and any(b.get("assign") for b in self.blocks.values())
+        self.stable: dict[tuple, str] = {}
+        self.inplace_targets: set[str] = set()
+        self.cond_users: dict[tuple, int] = {}
         self.work_locals = bool((sheet.get("t3000") or {}).get("work_locals"))
         self.local_n = 0
         self.work_locals_used: list[str] = []
@@ -239,8 +246,19 @@ class _Gen:
         if t == "compare":
             return f"( {self.input(bid, 'a')} {COMPARE_OPS[p.get('op', '>')]} {self.input(bid, 'b')} )"
         if t in ("and", "or"):
-            parts = [self.atom(bid, self.input(bid, q)) for q in "abcd" if q in "ab" or (bid, q) in self.incoming]
-            return self.group("( " + f" {t.upper()} ".join(parts) + " )")
+            # a chain of the same operator stays flat (a OR b OR c): its listing reads the same without brackets;
+            # only a mixed AND/OR operand is stored first
+            parts: list[str] = []
+            for q in "abcd":
+                if q in "ab" or (bid, q) in self.incoming:
+                    x = self.input(bid, q)
+                    if self.chains.get(x, ("", []))[0] == t:
+                        parts.extend(self.chains[x][1])
+                    else:
+                        parts.append(self.atom(bid, x))
+            expr = self.group("( " + f" {t.upper()} ".join(parts) + " )")
+            self.chains[expr] = (t, parts)
+            return expr
         if t == "not":
             return f"( NOT {self.input(bid, 'in')} )"
         if t == "xor":
@@ -409,12 +427,125 @@ class _Gen:
             self.emit(f"IF {enable} THEN {integ} = {clamp} ELSE {integ} = 0")
             self.emit(f"IF {enable} THEN {out} = MAX( {lo} , MIN( {hi} , {prop} + {integ} ) ) ELSE {out} = {lo}")
             return out
+        if t == "select" and self.inplace and self.blocks[bid].get("assign"):
+            blk = self.blocks[bid]
+            name = self.target_name(blk)
+            if name:
+                if parse_point(name):
+                    allowed, reason = self.guard(*parse_point(name))
+                    if not allowed:
+                        self.err("t3_write_denied", f"{name} is not writable: {reason}", bid)
+                        return "0"
+                return self.build_inplace_select(blk, name)
         if t == "select":
             s, a, b = self.input(bid, "s"), self.simple(bid, self.input(bid, "a")), self.simple(bid, self.input(bid, "b"))
             w = self.take_work(bid)
             self.emit(f"IF {s} THEN {w} = {a} ELSE {w} = {b}")
             return w
         return None
+
+    def assigned(self, name: str) -> None:
+        """name was changed in place: forget stored expressions that read it (they hold the old value)."""
+        rx = re.compile(rf"(?<![A-Z0-9_.]){re.escape(name)}(?![A-Z0-9_])")
+        for key in [k for k in self.cse if rx.search(k[1])]:
+            del self.cse[key]
+
+    def target_name(self, b: dict) -> str | None:
+        target = str(b.get("assign") or "")
+        if target.startswith("L:"):
+            name = target[2:].upper()
+            return name if LOCAL_RE.match(name) else None
+        parsed = parse_point(target)
+        return f"{parsed[0]}{parsed[1]}" if parsed else None
+
+    def build_inplace_select(self, b: dict, name: str) -> str:
+        """One conditional assignment of a point (or local) and the IFs nested in it, written in place, as in the
+        original program: IF c THEN P = x [ELSE P = y]; IF reached AND c THEN P = x for nested ones. Branches that keep
+        the value write nothing. A condition is stored before the first assignment only when several lines use it and
+        it reads a point those lines change (in the original it is evaluated once)."""
+        bid, keep = b["id"], b.get("keep")
+        prev_src = self.incoming.get((bid, keep)) if keep in ("a", "b") else None
+        if prev_src is not None:
+            prev = self.output(*prev_src)  # the earlier assignments of this point come first
+            if prev != name:
+                self.emit(f"{name} = {prev}")
+                self.assigned(name)
+        self.emit_node(bid, name, prev_src, [])
+        self.assigned(name)
+        if parse_point(name):
+            self.writes.setdefault(name, name)
+        return name
+
+    def nested(self, src, name: str, prev_src) -> bool:
+        inner = self.blocks.get(src[0]) if src else None
+        if not (inner and src[1] == "out" and inner.get("type") == "select" and inner.get("assign") and self.target_name(inner) == name):
+            return False
+        if (src[0], "out") in self.memo:
+            return False  # already written (used elsewhere): read it as a value
+        k = inner.get("keep")
+        return self.incoming.get((src[0], k)) == prev_src if k in ("a", "b") else True
+
+    def lines_of(self, bid: str, name: str, prev_src) -> int:
+        """How many assignment lines this node writes (to know whether its condition is read more than once)."""
+        blk, n = self.blocks[bid], 0
+        for port in ("a", "b"):
+            src = self.incoming.get((bid, port))
+            if port == blk.get("keep") or src is None or src == prev_src:
+                continue
+            n += self.lines_of(src[0], name, prev_src) if self.nested(src, name, prev_src) else 1
+        return n
+
+    def emit_node(self, bid: str, name: str, prev_src, conds: list[str]) -> None:
+        blk = self.blocks[bid]
+        keep = blk.get("keep")
+        csrc = self.incoming.get((bid, "s"))
+        if csrc is None:
+            self.err("input_unconnected", "Input s is not connected", bid)
+            return
+        multi = self.lines_of(bid, name, prev_src) > 1 or self.cond_users.get(csrc, 0) > 1
+        c = self.cond(csrc, bid, store=multi)
+        ports = [p for p in ("a", "b") if p != keep and self.incoming.get((bid, p)) is not None and self.incoming.get((bid, p)) != prev_src]
+        leaf = {p: not self.nested(self.incoming[(bid, p)], name, prev_src) for p in ports}
+        prefix = self.and_all(bid, conds)
+        if ports == ["a", "b"] and leaf["a"] and leaf["b"]:
+            va, vb = self.output(*self.incoming[(bid, "a")]), self.output(*self.incoming[(bid, "b")])
+            if not conds:
+                if va == name:
+                    self.emit(f"IF ( NOT {self.atom(bid, c)} ) THEN {name} = {vb}")
+                elif vb == name:
+                    self.emit(f"IF {c} THEN {name} = {va}")
+                else:
+                    self.emit(f"IF {c} THEN {name} = {va} ELSE {name} = {vb}")
+                return
+        for p in ports:
+            here = conds + [c if p == "a" else f"( NOT {self.atom(bid, c)} )"]
+            src = self.incoming[(bid, p)]
+            if not leaf[p]:
+                self.emit_node(src[0], name, prev_src, here)
+                continue
+            v = self.output(*src)
+            if v == name:
+                continue  # the point already holds this value
+            self.emit(f"IF {self.and_all(bid, here)} THEN {name} = {v}")
+        del prefix
+
+    def and_all(self, bid: str, conds: list[str]) -> str:
+        if not conds:
+            return "1"
+        if len(conds) == 1:
+            return conds[0]
+        return self.group("( " + " AND ".join(self.atom(bid, c) for c in conds) + " )")
+
+    def cond(self, src, bid: str, store: bool) -> str:
+        if src in self.stable:
+            return self.stable[src]
+        expr = self.output(*src)
+        if store and any(re.search(rf"(?<![A-Z0-9_.]){re.escape(t)}(?![A-Z0-9_])", expr) for t in self.inplace_targets):
+            w = self.take_work(bid)
+            self.emit(f"IF {expr} THEN {w} = 1 ELSE {w} = 0")
+            expr = f"( {w} > 0 )"
+            self.stable[src] = expr
+        return expr
 
     def local_name(self, b: dict) -> str | None:
         name = str((b.get("params") or {}).get("name", "")).strip().upper()
@@ -483,10 +614,48 @@ class _Gen:
         for w in work:
             if w in self.writes or w in self.reads:
                 self.err("t3_work_conflict", f"Work variable {w} is also used by a read or write block")
+        if self.inplace:
+            # program order: conditional assignments and writes as the original program ran them
+            def seq(blk: dict) -> tuple:
+                if blk.get("seq"):
+                    return tuple(blk["seq"])
+                src = self.incoming.get((blk["id"], "in"))
+                return tuple(self.blocks[src[0]].get("seq") or (10 ** 9, 0)) if src else (10 ** 9, 0)
+            assigns = [b for b in self.blocks.values() if b.get("type") == "select" and b.get("assign")]
+            self.inplace_targets = {n for n in (self.target_name(b) for b in assigns) if n}
+            self.cond_users = {}
+            for b_ in assigns:
+                src_ = self.incoming.get((b_["id"], "s"))
+                if src_:
+                    self.cond_users[src_] = self.cond_users.get(src_, 0) + 1
+            # an IF nested in a conditionally reached line belongs to that line's assignment: it is written only
+            # through it (with the line's condition), never on its own
+            inner = set()
+            for b_ in assigns:
+                for port in ("a", "b"):
+                    src_ = self.incoming.get((b_["id"], port))
+                    blk_ = self.blocks.get(src_[0]) if src_ else None
+                    if blk_ is not None and blk_.get("type") == "select" and blk_.get("assign") and self.target_name(blk_) == self.target_name(b_):
+                        inner.add(blk_["id"])
+            roots = [b for b in assigns if b["id"] not in inner]
+            order = sorted([("a", b) for b in roots] + [("w", b) for b, _ in targets], key=lambda x: (*seq(x[1]), x[0] == "w"))
+            names = dict((b["id"], n) for b, n in targets)
+            targets = []
+            for kind, b in order:
+                if kind == "a":
+                    self.output(b["id"], "out")
+                else:
+                    targets.append((b, names[b["id"]]))
+                    self.emit_write(b, names[b["id"]])
+            return
         for b, name in targets:
+            self.emit_write(b, name)
+
+    def emit_write(self, b: dict, name: str | None) -> None:
+        if True:
             source = self.input(b["id"], "in")
             if not name:
-                continue
+                return
             if b.get("type") == "modbus_write":
                 scale = (b.get("params") or {}).get("scale", 1)
                 if scale not in (None, "", 1, 1.0):
@@ -494,10 +663,14 @@ class _Gen:
                         source = f"( {source} * {format_number(scale)} )"
                     except (TypeError, ValueError) as e:
                         self.err("t3_number", str(e), b["id"], "scale")
+            if source == name:
+                return  # already assigned in place
             if (b.get("params") or {}).get("value_type") == "boolean":
                 self.emit(f"IF {source} THEN {name} = 1 ELSE {name} = 0")
             else:
                 self.emit(f"{name} = {source}")
+            if self.inplace:
+                self.assigned(name)
 
 
 def generate(sheet: dict, guard: Guard) -> dict[str, Any]:

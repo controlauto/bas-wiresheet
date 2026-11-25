@@ -256,7 +256,9 @@ class _Graph:
     def block(self, typ: str, label: str | None = None, **params) -> str:
         self.n += 1
         bid = f"{typ.replace('_', '')}_{self.n}"
-        self.blocks.append({"id": bid, "type": typ, "label": label or typ.replace("_", " ").title(), "params": params, "position": {"x": 0, "y": 0}, "_line": self.line})
+        # seq: program line and creation order, so a compiler can rebuild the program in its original statement order
+        self.blocks.append({"id": bid, "type": typ, "label": label or typ.replace("_", " ").title(), "params": params, "position": {"x": 0, "y": 0},
+                            "_line": self.line, "seq": [self.line, self.n]})
         return bid
 
     def wire(self, ref: tuple, block: str, port: str) -> None:
@@ -410,6 +412,7 @@ class _Graph:
             if base.get(point) == ref:
                 continue
             b = self.block("select", f"Reached → {point[2:] if point.startswith('L:') else point}")
+            self.blocks[-1].update({"assign": point, "keep": "b"})  # IF reached THEN point = a (else it keeps b, its value so far)
             self.wire(guard, b, "s")
             self.wire(ref, b, "a")
             self.wire(base.get(point) or self.read(point), b, "b")
@@ -437,6 +440,7 @@ class _Graph:
                     continue
                 prev = base.get(point) or self.read(point)
                 b = self.block("select", f"IF → {point}")
+                self.blocks[-1].update({"assign": point, "keep": "a" if t is None else "b" if e is None else None})
                 self.wire(cond, b, "s")
                 self.wire(t or prev, b, "a")
                 self.wire(e or prev, b, "b")
