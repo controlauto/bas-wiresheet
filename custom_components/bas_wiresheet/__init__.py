@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import copy
 import difflib
 import hashlib
 import json
@@ -36,7 +37,7 @@ from .const import (
     CONF_EDITORS, CONF_NODERED_TEST, DOMAIN, PANEL_ICON, PANEL_TITLE, PANEL_URL_PATH,
     PREVIEW_TTL_S, STATIC_URL, TARGET_PRODUCTION, TARGET_TEST, VERSION,
 )
-from . import t3000, t3000_bacnet, t3000_basic, t3000_import, t3000_points, t3000_policy, t3000_tables, t3000_toolchain
+from . import t3000, t3000_bacnet, t3000_basic, t3000_import, t3000_points, t3000_policy, t3000_settings, t3000_tables, t3000_toolchain
 from .t3000_policy import make_guard
 from .program_watch import ProgramWatch
 from .sheet_runner import SheetRunner
@@ -173,10 +174,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                     ws_deploy_preview, ws_deploy, ws_rollback, ws_target_status, ws_subscribe_live, ws_push_result,
                     ws_t3_devices, ws_t3_points, ws_t3_compile, ws_delete_sheet, ws_t3_program_list, ws_t3_program_read,
                     ws_t3_upload_plan, ws_t3_upload_apply, ws_t3_program_control, ws_t3_program_to_sheet, ws_t3_prog_file,
-                    ws_t3_code_check, ws_t3_code_apply, ws_t3_code_restore, ws_t3_program_state, ws_t3_point_write,
+                    ws_t3_code_check, ws_t3_code_apply, ws_t3_code_restore, ws_t3_program_state, ws_t3_point_write, ws_t3_point_table,
                     ws_t3_discover, ws_sheet_access, ws_live_states, ws_history, ws_point_history,
                     ws_program_watch_status, ws_program_watch_run, ws_sheet_run, ws_sheet_run_status, ws_templates, ws_program_export, ws_t3_point_config, ws_t3_point_config_write,
-                    ws_t3_schedules, ws_t3_schedule_get, ws_t3_schedule_set, ws_t3_pids, ws_t3_pid_set):
+                    ws_t3_schedules, ws_t3_schedule_get, ws_t3_schedule_set, ws_t3_pids, ws_t3_pid_set, ws_t3_settings, ws_t3_port_set, ws_t3_send_check, ws_t3_send_apply):
         websocket_api.async_register_command(hass, handler)
     return True
 
@@ -313,7 +314,7 @@ MAX_RESULT_BYTES = 256_000
 
 def _t3_compile(sheet: dict, devices: dict, guard=None) -> dict:
     gen = t3000_basic.generate(sheet, guard or make_guard(devices, sheet["t3000"]["device_instance"]))
-    out = {k: gen[k] for k in ("source", "issues", "reads", "writes", "work_vars", "state_map")}
+    out = {k: gen[k] for k in ("source", "issues", "reads", "writes", "work_vars", "state_map", "modbus_reads", "panel")}
     if gen["source"]:
         try:
             built = t3000_toolchain.build(gen["source"])
@@ -337,7 +338,39 @@ async def ws_t3_compile(hass, connection, msg):
         return
     devices = hass.data[DOMAIN]["conf"].get("t3000", {}).get("devices", {})
     guard = _t3_guard(hass, sheet["t3000"]["device_instance"]) if isinstance(sheet.get("t3000"), dict) else None
-    connection.send_result(msg["id"], await hass.async_add_executor_job(_t3_compile, sheet, devices, guard))
+    panel_issue = await _t3_fill_panel(hass, sheet)
+    result = await hass.async_add_executor_job(_t3_compile, sheet, devices, guard)
+    if panel_issue:
+        result["issues"] = [*result.get("issues", []), panel_issue]
+    connection.send_result(msg["id"], result)
+
+
+def _uses_modbus(sheet: dict) -> bool:
+    return any(b.get("type") in ("modbus_read", "modbus_write") for b in sheet.get("blocks", []))
+
+
+async def _t3_settings(hass, instance: int, refresh: bool = False) -> dict:
+    """Controller settings (panel number, ports), cached for 10 minutes."""
+    cache = hass.data[DOMAIN].setdefault("t3_settings", {})
+    hit = cache.get(instance)
+    if hit and not refresh and time.monotonic() - hit[0] < 600:
+        return hit[1]
+    cfg = _t3_require(hass, instance)
+    data = await _t3_run(hass, instance, cfg, lambda c: t3000_settings.read_settings(c, instance))
+    cache[instance] = (time.monotonic(), data)
+    return data
+
+
+async def _t3_fill_panel(hass, sheet: dict) -> dict | None:
+    """Modbus points name the controller's own panel number: take it from the controller when the sheet has none."""
+    t3 = sheet.get("t3000")
+    if not isinstance(t3, dict) or t3.get("panel") or not _uses_modbus(sheet):
+        return None
+    try:
+        t3["panel"] = (await _t3_settings(hass, int(t3["device_instance"])))["panel"]
+    except (*T3_ERRORS, KeyError, ValueError, TypeError) as err:
+        return {"severity": "warning", "code": "t3_panel", "message": f"Could not read the controller's panel number: {err}"}
+    return None
 
 
 # ---------------- T3000 controller programs ----------------
@@ -575,6 +608,82 @@ async def ws_t3_point_config_write(hass, connection, msg):
     diff = ", ".join(f"{k}: {result['before'].get(k)!r} -> {result['after'].get(k)!r}" for k in msg["changes"] if result["before"].get(k) != result["after"].get(k))
     await _repo(hass).add_audit({"by": _user_label(connection), "action": "point_config", "target": f"t3000:{instance}:{name}", "ok": True,
                                  "detail": f"{name}: {diff or 'no change'}"})
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_point_table", vol.Required("instance"): int,
+                                  vol.Required("category"): vol.In(["IN", "OUT", "VAR"])})
+@websocket_api.async_response
+async def ws_t3_point_table(hass, connection, msg):
+    """Read only: every IN, OUT or VAR of a controller straight from its point table (no Home Assistant entity needed)."""
+    instance, kind = msg["instance"], msg["category"]
+    t3conf = hass.data[DOMAIN]["conf"].get("t3000", {})
+    texts = _t3_point_texts(hass, instance)
+    devcfg = t3000_policy.device_configs(t3conf).get(instance)
+
+    def read(client):
+        if client.identify() != instance:
+            raise t3000_bacnet.UploadRefused("Wrong controller at this address")
+        rows = []
+        for i in range(1, t3000_points.KINDS[kind][2] + 1):
+            d = t3000_points.decode(kind, t3000_points.read_struct(client, kind, i))
+            d.pop("value_raw", None)
+            rows.append({"category": kind, "index": i, **d})
+        return rows
+
+    try:
+        cfg = _t3_require(hass, instance)
+        rows = await _t3_run(hass, instance, cfg, read)
+    except (*T3_ERRORS, IndexError, struct.error) as err:
+        connection.send_error(msg["id"], "t3000", str(err))
+        return
+    for r in rows:
+        name = f"{kind}{r['index']}"
+        r["protection"], r["protection_reason"] = t3000_policy.protection(devcfg, kind, r["index"], f"{name} {r['label']} {r['description']} {texts.get(name, '')}",
+                                                                          bool(t3conf.get("unlock_protected_points")))
+    connection.send_result(msg["id"], {"points": rows, "access": (_t3_effective(hass, instance) or {}).get("access")})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_settings", vol.Required("instance"): int})
+@websocket_api.async_response
+async def ws_t3_settings(hass, connection, msg):
+    """Read only: panel number and RS-485 port modes / baud rates of a controller."""
+    try:
+        data = await _t3_settings(hass, msg["instance"], refresh=True)
+    except (*T3_ERRORS, IndexError, struct.error) as err:
+        connection.send_error(msg["id"], "t3000", str(err))
+        return
+    connection.send_result(msg["id"], {**data, "modes": t3000_settings.EDITABLE_MODES, "bauds": sorted(t3000_settings.BAUD_RATES)})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_port_set", vol.Required("instance"): int,
+                                  vol.Required("port"): vol.In(t3000_settings.PORTS), vol.Optional("mode"): int, vol.Optional("baud"): int,
+                                  vol.Required("confirm"): str})
+@websocket_api.async_response
+async def ws_t3_port_set(hass, connection, msg):
+    """Change one RS-485 port's mode (Unused, MS/TP, Modbus Slave, Modbus Master) or baud rate. Full access, typed confirmation."""
+    if not _require_editor(hass, connection, msg):
+        return
+    instance, port = msg["instance"], msg["port"]
+    cfg = _t3_effective(hass, instance) or {}
+    if cfg.get("access") != "full":
+        connection.send_error(msg["id"], "not_allowed", f"Ports can be changed only with full access (device {instance})")
+        return
+    if msg["confirm"].strip().upper() != port:
+        connection.send_error(msg["id"], "not_allowed", f"Type {port} to confirm")
+        return
+    try:
+        result = await _t3_run(hass, instance, cfg, lambda c: t3000_settings.set_port(c, instance, port, msg.get("mode"), msg.get("baud")))
+    except (*T3_ERRORS, IndexError, struct.error, ValueError) as err:
+        await _repo(hass).add_audit({"by": _user_label(connection), "action": "port", "target": f"t3000:{instance}:{port}", "ok": False,
+                                     "detail": f"{port} change failed: {err}"})
+        connection.send_error(msg["id"], "t3000", str(err))
+        return
+    i = t3000_settings.PORTS.index(port)
+    b, a = result["before"]["ports"][i], result["after"]["ports"][i]
+    await _repo(hass).add_audit({"by": _user_label(connection), "action": "port", "target": f"t3000:{instance}:{port}", "ok": True,
+                                 "detail": f"{port}: {b['mode']} {b['baud']} -> {a['mode']} {a['baud']}"})
+    hass.data[DOMAIN].setdefault("t3_settings", {}).pop(instance, None)
     connection.send_result(msg["id"], result)
 
 
@@ -1323,6 +1432,7 @@ async def ws_t3_upload_plan(hass, connection, msg):
     try:
         cfg = _t3_require(hass, instance, slot)
         devices = hass.data[DOMAIN]["conf"].get("t3000", {}).get("devices", {})
+        await _t3_fill_panel(hass, sheet)
         built = await hass.async_add_executor_job(_t3_compile, sheet, devices, _t3_guard(hass, instance))
         if "code_hex" not in built:
             raise t3000_bacnet.UploadRefused("; ".join(i["message"] for i in built["issues"] if i["severity"] == "error"))
@@ -1340,6 +1450,127 @@ async def ws_t3_upload_plan(hass, connection, msg):
         "token": token, "instance": instance, "program": slot, "revision": msg["revision"], "new_bytes": plan.new_length, "existing_bytes": plan.old_used,
         "currently_on": bool(bytes.fromhex(plan.old_status)[t3000_bacnet.ON_OFF_OFFSET]), "sha256": plan.new_sha,
         "writes": built["writes"], "reads": built["reads"], "work_vars": built["work_vars"], "listing": built["listing"], "expires_in_s": PREVIEW_TTL_S})
+
+
+# ---------------- Send to Controller: one check, one confirmation ----------------
+# Saves a revision when the draft has changes, compiles it, compares with what the controller holds and prepares either a
+# first load (empty program) or a replacement (existing program, running or not). Apply writes, verifies, keeps a backup
+# of the previous program (Restore in Programs) and starts the program when asked.
+
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_send_check", vol.Required("sheet_id"): str})
+@websocket_api.async_response
+async def ws_t3_send_check(hass, connection, msg):
+    if not _require_editor(hass, connection, msg):
+        return
+    if not _sheet_allowed(hass, connection, msg, msg["sheet_id"]):
+        return
+    repo = _repo(hass)
+    try:
+        rec = repo.get(msg["sheet_id"])
+        committed = False
+        if rec.get("draft_dirty") or not rec["revisions"]:
+            await repo.commit(msg["sheet_id"], _user_label(connection), "Sent to controller", _known_entities(hass))
+            committed = True
+        rev = repo.get(msg["sheet_id"])["revisions"][-1]
+        sheet = copy.deepcopy(rev["sheet"])
+    except RepoError as err:
+        connection.send_error(msg["id"], "invalid", str(err))
+        return
+    if sheet.get("mode") != "t3000":
+        connection.send_error(msg["id"], "invalid", "Only T3000 program sheets can be sent to a controller")
+        return
+    if (sheet.get("t3000") or {}).get("imported"):
+        connection.send_error(msg["id"], "invalid", "This sheet documents an existing controller program and cannot be sent")
+        return
+    instance, slot = sheet["t3000"]["device_instance"], sheet["t3000"]["program_slot"]
+    try:
+        cfg = _t3_require(hass, instance, slot)
+        devices = hass.data[DOMAIN]["conf"].get("t3000", {}).get("devices", {})
+        await _t3_fill_panel(hass, sheet)
+        built = await hass.async_add_executor_job(_t3_compile, sheet, devices, _t3_guard(hass, instance))
+        if "code_hex" not in built:
+            raise t3000_bacnet.UploadRefused("; ".join(i["message"] for i in built["issues"] if i["severity"] == "error"))
+        code = bytes.fromhex(built["code_hex"])
+
+        def check(client):
+            if client.identify() != instance:
+                raise t3000_bacnet.UploadRefused("Wrong controller at this address")
+            current = client.read_code(slot - 1)
+            used = t3000_bacnet.code_used_length(current)
+            old_listing = t3000_toolchain.decompile(current[:used]) if used else ""
+            if used:
+                plan, backup = t3000_bacnet.plan_replace(client, instance, slot, cfg["program_write_slots"], code, t3000_import.logic_digest)
+                return "replace", plan, backup, old_listing, plan.was_on
+            plan, backup = t3000_bacnet.plan_upload(client, instance, slot, cfg["program_write_slots"], code, allow_replace=True)
+            return "load", plan, backup, old_listing, False
+
+        kind, plan, backup, old_listing, running = await _t3_run(hass, instance, cfg, check)
+    except (*T3_ERRORS, t3000_toolchain.ToolchainError) as err:
+        connection.send_error(msg["id"], "t3000", str(err))
+        return
+    same = kind == "replace" and plan.old_digest == t3000_import.logic_digest(code)
+    diff = list(difflib.unified_diff(old_listing.splitlines(), built["listing"].splitlines(), "controller", "sheet", lineterm="", n=1))
+    token = secrets.token_urlsafe(18)
+    hass.data[DOMAIN].setdefault("t3_send", {})[token] = {
+        "user": connection.user.id if connection.user else None, "expires": time.time() + PREVIEW_TTL_S, "kind": kind, "plan": plan, "code": code,
+        "backup": backup, "sheet_id": msg["sheet_id"], "rev": rev["rev"], "instance": instance, "slot": slot}
+    connection.send_result(msg["id"], {
+        "token": token, "kind": kind, "same": same, "running": running, "committed": committed, "revision": rev["rev"], "instance": instance,
+        "program": slot, "new_bytes": len(code), "writes": built["writes"], "reads": built["reads"], "modbus_reads": built.get("modbus_reads", []),
+        "panel": built.get("panel"), "listing": built["listing"], "diff": diff, "expires_in_s": PREVIEW_TTL_S})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_send_apply", vol.Required("token"): str,
+                                  vol.Optional("start", default=True): bool})
+@websocket_api.async_response
+async def ws_t3_send_apply(hass, connection, msg):
+    if not _require_editor(hass, connection, msg):
+        return
+    plans = hass.data[DOMAIN].setdefault("t3_send", {})
+    p = plans.pop(msg["token"], None)
+    if not p or p["expires"] < time.time() or p["user"] != (connection.user.id if connection.user else None):
+        connection.send_error(msg["id"], "plan_required", "Check expired, already used or owned by another user; send again")
+        return
+    repo, target = _repo(hass), _t3_target(p["instance"], p["slot"])
+    logic = t3000_import.logic_digest(p["code"])
+    sha = hashlib.sha256(p["code"]).hexdigest()
+    entry = None
+    if p["kind"] == "replace":
+        entry = {"saved_at": datetime.now(UTC).isoformat(), "by": _user_label(connection), "code_hex": p["backup"].hex(), "status_hex": p["plan"].old_status}
+        await repo.add_program_backup(target, entry)
+
+    def send(client):
+        if p["kind"] == "replace":
+            result = t3000_bacnet.apply_replace(client, p["plan"], p["code"], p["backup"], p["plan"].token, t3000_import.logic_digest)
+        else:
+            result = t3000_bacnet.apply_upload(client, p["plan"], p["code"], p["backup"], p["plan"].token)
+        if result.get("ok") and msg["start"]:
+            result["start"] = t3000_bacnet.start_program(client, p["instance"], p["slot"], sha, logic, t3000_import.logic_digest)
+        return result
+
+    try:
+        cfg = _t3_require(hass, p["instance"], p["slot"])
+        result = await _t3_run(hass, p["instance"], cfg, send)
+    except T3_ERRORS as err:
+        if entry:
+            await repo.pop_program_backup(target)
+        await repo.add_audit({"by": _user_label(connection), "action": "send", "target": target, "ok": False, "detail": f"Send r{p['rev']} failed: {err}"})
+        connection.send_error(msg["id"], "t3000", str(err))
+        return
+    if not result.get("ok") and entry and result.get("restored"):
+        await repo.pop_program_backup(target)
+    running = bool(result.get("ok") and (msg["start"] or result.get("running")))
+    status = ("running" if running else "loaded") if result.get("ok") else "failed"
+    if result.get("ok"):
+        await _panel_changed(hass, p["instance"], p["slot"])
+    await repo.record_deployment(p["sheet_id"], {
+        "target": target, "rev": p["rev"], "deployed_at": datetime.now(UTC).isoformat(), "by": _user_label(connection), "status": status,
+        "kind": "t3000", "sha256": sha, "logic": logic,
+        "backup": {"code_hex": p["backup"].hex(), "status_hex": p["plan"].old_status}, "backup_of": None})
+    await repo.add_audit({"by": _user_label(connection), "action": "send", "target": target, "ok": bool(result.get("ok")),
+                          "detail": (f"r{p['rev']} sent to program {p['slot']} ({'replaced' if p['kind'] == 'replace' else 'loaded'}), {status}"
+                                     if result.get("ok") else f"Send r{p['rev']} failed: {result.get('error')}")})
+    connection.send_result(msg["id"], {**result, "status": status, "revision": p["rev"]})
 
 
 @websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_upload_apply", vol.Required("token"): str})

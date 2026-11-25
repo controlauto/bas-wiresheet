@@ -1,8 +1,9 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow, ReactFlowProvider, Background, Controls, MiniMap, Handle, Position, BaseEdge, EdgeLabelRenderer,
-  getBezierPath, NodeChangeset, EdgeChangeset, useReactFlow,
+  getBezierPath, NodeChangeset, EdgeChangeset, useReactFlow, useInternalNodes,
 } from "@xyflow/react";
+import { routeAll, roundedPath, elbowPoints, labelPoint, tidyLayout } from "./router.js";
 import RT from "../../custom_components/bas_wiresheet/runtime/runtime.js";
 import {
   sheetToFlow, flowToSheet, defaultParams, newId, resolvePortType, resolvePortUnit, fmtValue, fmtTime, fmtAge,
@@ -29,14 +30,14 @@ const MODE = { EDIT: "Edit", SIM: "Simulation", LIVE: "Live Monitoring" };
 /* ======================= block identity ======================= */
 // One hue per block family (reference categorical palette, dark steps, validated on the panel surface).
 export const CATEGORY_STYLE = {
-  Inputs: { color: "#3987e5", tag: "IN" }, T3000: { color: "#199e70", tag: "T3" }, Logic: { color: "#9085e9", tag: "LOG" },
+  Inputs: { color: "#3987e5", tag: "IN" }, T3000: { color: "#199e70", tag: "T3" }, Modbus: { color: "#2fb5c4", tag: "MB" }, Logic: { color: "#9085e9", tag: "LOG" },
   Math: { color: "#c98500", tag: "MATH" }, Control: { color: "#d55181", tag: "CTL" }, Timers: { color: "#d95926", tag: "TMR" },
   "Data Quality": { color: "#0ca30c", tag: "DQ" }, Alarms: { color: "#e66767", tag: "ALM" }, Displays: { color: "#8b97a8", tag: "DSP" },
 };
 export const BLOCK_ICON = {
   entity_input: "⇢", constant: "#", compare: "≷", and: "&", or: "≥1", not: "¬", xor: "=1", latch: "SR", edge: "↑⎍",
   on_delay: "T→", off_delay: "→T", data_freshness: "◷", status_display: "▣", alarm: "⚠", range_check: "⟦ ⟧",
-  t3_read: "⇥", t3_write: "⇤", cb_unmapped: "?", cb_local_read: "L⇥", cb_local_write: "L⇤",
+  t3_read: "⇥", t3_write: "⇤", modbus_read: "MB⇥", modbus_write: "MB⇤", cb_unmapped: "?", cb_local_read: "L⇥", cb_local_write: "L⇤",
   add: "+", subtract: "−", multiply: "×", divide: "÷", minimum: "min", maximum: "max", absolute: "|x|",
   limit: "⊓", scale: "⤢", hysteresis: "⌇", select: "⇋", pi: "PI", counter: "Σn", average: "x̄", rate: "Δ/t", ramp: "⟋",
 };
@@ -72,7 +73,7 @@ function BlockNode({ id, data, selected }) {
         <span className="blk-cat">{(CATEGORY_STYLE[def.category] || {}).tag || def.category}</span>
         {eq && <span className="badge comm" title={`${b.params.equipment}: ${eq.status} since ${eq.since}`}>Commissioning Pending</span>}
       </div>
-      <div className="blk-title">{b.label || (b.params && b.params.label) || id}</div>
+      <div className="blk-title">{b.label || (b.params && b.params.label) || ((b.type === "t3_read" || b.type === "t3_write") && pointName(c.t3Points, b.params && b.params.point)) || id}</div>
       {b.type === "entity_input" && <div className="blk-sub mono">{(b.params && b.params.entity_id) || "No entity selected"}</div>}
       {b.type === "data_freshness" && <div className="blk-sub">Stale after {b.params && b.params.stale_after_s} s</div>}
       {(b.type === "on_delay" || b.type === "off_delay") && (
@@ -80,7 +81,12 @@ function BlockNode({ id, data, selected }) {
       )}
       {b.type === "constant" && <div className="blk-sub mono">{String(b.params && b.params.value)} {b.params && b.params.unit}</div>}
       {b.type === "compare" && <div className="blk-sub mono">A {b.params && b.params.op} B</div>}
-      {(b.type === "t3_read" || b.type === "t3_write") && <div className="blk-sub mono">{(b.params && b.params.point) || "No point selected"}</div>}
+      {(b.type === "t3_read" || b.type === "t3_write") && <div className="blk-sub">{b.params && b.params.point
+        ? (pointName(c.t3Points, b.params.point)
+          ? <><b className="pt-label" data-testid={`pt-label-${id}`}>{pointName(c.t3Points, b.params.point)}</b> <span className="mono muted">{String(b.params.point).toUpperCase()}</span></>
+          : <span className="mono">{String(b.params.point).toUpperCase()}</span>)
+        : "No point selected"}</div>}
+      {(b.type === "modbus_read" || b.type === "modbus_write") && <div className="blk-sub mono" data-testid={`mb-${id}`}>ID {b.params.slave} · {MB_SHORT[b.params.register_type] || b.params.register_type} {b.params.address}{b.params.scale !== undefined && Number(b.params.scale) !== 1 ? ` · ×${b.params.scale}` : ""}</div>}
       {b.type === "cb_unmapped" && <div className="blk-sub mono" style={{ whiteSpace: "pre-wrap", maxWidth: 260 }}>{b.params.code}</div>}
       {(b.type === "cb_local_read" || b.type === "cb_local_write") && <div className="blk-sub mono">{b.params.name}</div>}
       {b.type === "limit" && <div className="blk-sub mono">{b.params.low} to {b.params.high}</div>}
@@ -94,7 +100,7 @@ function BlockNode({ id, data, selected }) {
       {b.type === "pi" && <div className="blk-sub mono">Kp {b.params.kp} · Ki {b.params.ki} · {b.params.out_min}..{b.params.out_max}</div>}
       {b.type === "pi" && out && out.state.integral != null && <div className="blk-sub mono" data-testid={`ctl-${id}`}>Integral {Number(out.state.integral).toFixed(2)} (controller)</div>}
       {(b.type === "on_delay" || b.type === "off_delay") && out && out.state.elapsed_s != null && <div className="blk-sub mono" data-testid={`ctl-${id}`}>Controller timer {out.state.elapsed_s.toFixed(1)} s</div>}
-      {b.type === "t3_read" && out && out.outputs.value && <DisplayValue value={out.outputs.value} />}
+      {(b.type === "t3_read" || b.type === "modbus_read") && out && out.outputs.value && <DisplayValue value={out.outputs.value} />}
       {fr && <div className={`chip ${FRESH_CLASS[fr.v] || "unk"}`}>{fr.v}</div>}
       {disp && <DisplayValue value={disp.value} />}
       {b.type === "t3_write" && c.snapshot && c.snapshot.calculated && c.snapshot.calculated[id] !== undefined && (
@@ -144,7 +150,18 @@ function DisplayValue({ value }) {
 function BasEdge(props) {
   const c = useCtx();
   const { id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, selected } = props;
-  const [path, lx, ly] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
+  let path, lx, ly;
+  if (c.wireStyle === "curved") [path, lx, ly] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
+  else {
+    let pts = c.routes && c.routes[id];
+    // the cached route is valid only while both ends are where it was computed (not while a block is dragged)
+    const ok = pts && Math.abs(pts[0][0] - sourceX) < 2 && Math.abs(pts[0][1] - sourceY) < 2
+      && Math.abs(pts[pts.length - 1][0] - targetX) < 2 && Math.abs(pts[pts.length - 1][1] - targetY) < 2;
+    if (!ok) pts = elbowPoints(sourceX, sourceY, targetX, targetY);
+    else { pts = pts.map((q) => [...q]); pts[0] = [sourceX, sourceY]; pts[pts.length - 1] = [targetX, targetY]; }
+    path = roundedPath(pts, 7);
+    [lx, ly] = labelPoint(pts);
+  }
   const issues = c.issuesByWire[id] || [];
   const v = c.snapshot && c.snapshot.wires[id];
   const color = issues.some((i) => i.severity === "error") ? "var(--bad)" : c.wireColor(id);
@@ -211,9 +228,22 @@ function ParamField({ def, value, onChange, readOnly, hass, error, options }) {
   );
 }
 
+/** Point label as configured on the controller (falls back to null when the point is unknown). */
+function pointName(points, point) {
+  if (!points || !point) return null;
+  const r = points.find((x) => `${x.category}${x.index}` === String(point).toUpperCase());
+  if (!r) return null;
+  // the controller label, or its description when the label is still the default point name (e.g. OUT7 "Supply Fan")
+  const own = (t) => t && String(t).trim() && String(t).trim().toUpperCase() !== String(point).toUpperCase() ? String(t).trim() : null;
+  return own(r.label) || own(r.description) || null;
+}
+const MB_SHORT = { holding: "HR", input_register: "IR", coil: "Coil", discrete_input: "DI", holding_float_abcd: "HR float ABCD", holding_float_cdab: "HR float CDAB",
+  holding_float_badc: "HR float BADC", holding_float_dcba: "HR float DCBA", input_float_abcd: "IR float ABCD", input_float_cdab: "IR float CDAB",
+  input_float_badc: "IR float BADC", input_float_dcba: "IR float DCBA" };
+
 function pointOptions(points, type) {
   return (points || [])
-    .filter((p) => ["IN", "OUT", "VAR"].includes(p.category) && (type === "t3_read" || (p.category !== "IN" && p.protection === "sandbox")))
+    .filter((p) => ["IN", "OUT", "VAR"].includes(p.category) && (type === "t3_read" || (p.category !== "IN" && p.protection !== "locked")))
     .map((p) => ({ value: `${p.category}${p.index}`, label: `${p.label} · ${p.value}${p.units ? ` ${p.units}` : ""}${p.protection === "locked" ? " · Locked" : ""}` }));
 }
 
@@ -337,7 +367,7 @@ function useSimulation(sheet, active) {
     const start = scenario ? Date.parse(scenario.start) : Date.now();
     if (scenario) Object.entries(scenario.entities || {}).forEach(([id, o]) => src.configure(id, o));
     else rt.entityIds().forEach((id) => src.configure(id, { write_mode: "every_sample" }));
-    sheet.blocks.forEach((b) => { if (b.type === "t3_read" && b.params.point) rt.setPoint(b.params.point, 0); });
+    sheet.blocks.forEach((b) => { if (b.type === "t3_read" && b.params.point) rt.setPoint(b.params.point, 0); if (b.type === "modbus_read") rt.setPoint(RT.modbusKey(b.params), 0); });
     sim.current = { rt, src, start, clock: start, scenario, ei: 0, events: scenario ? [...scenario.events].sort((a, b) => a.t - b.t) : [], playing: false, speed: 1, snapshot: rt.tick(start), log: [] };
     setTick((x) => x + 1);
   }, [sheet]);
@@ -410,7 +440,7 @@ function SimPanel({ sim, sheet }) {
       </div>
       {s.scenario && <div className="muted small">{s.scenario.description}</div>}
       {sheet.mode === "t3000" && <table className="simtab" data-testid="sim-t3-points"><thead><tr><th>Controller Point</th><th>Simulated Value</th></tr></thead>
-        <tbody>{[...new Set(sheet.blocks.filter((b) => b.type === "t3_read" && b.params.point).map((b) => b.params.point.toUpperCase()))].map((pt) => (
+        <tbody>{[...new Set([...sheet.blocks.filter((b) => b.type === "t3_read" && b.params.point).map((b) => b.params.point.toUpperCase()), ...sheet.blocks.filter((b) => b.type === "modbus_read").map((b) => RT.modbusKey(b.params))])].map((pt) => (
           <tr key={pt}><td className="mono">{pt}</td><td><input type="number" step="any" className="mono" defaultValue={0} onChange={(ev) => { if (ev.target.value !== "") sim.point(pt, Number(ev.target.value)); }} data-testid={`sim-point-${pt}`} /></td></tr>
         ))}</tbody></table>}
       <table className="simtab">
@@ -748,6 +778,53 @@ function Editor({ hass, boot, initialSheet }) {
   const issuesByBlock = useMemo(() => { const m = {}; issues.forEach((i) => { if (i.block && !i.wire) (m[i.block] = m[i.block] || []).push(i); if (i.block && i.port && i.wire) (m[i.block] = m[i.block] || []).push(i); }); return m; }, [issues]);
   const issuesByWire = useMemo(() => { const m = {}; issues.forEach((i) => { if (i.wire) (m[i.wire] = m[i.wire] || []).push(i); }); return m; }, [issues]);
   const nodeById = useMemo(() => Object.fromEntries(nodes.map((n) => [n.id, n])), [nodes]);
+  // ---- wire auto-routing (orthogonal, around blocks, separated lanes) ----
+  const [wireStyle, setWireStyle] = useState(() => { try { return localStorage.getItem("bas_wiresheet.wire_style") || "routed"; } catch { return "routed"; } });
+  useEffect(() => { try { localStorage.setItem("bas_wiresheet.wire_style", wireStyle); } catch { /* ignore */ } }, [wireStyle]);
+  const nodeIds = useMemo(() => nodes.map((n) => n.id), [nodes]);
+  const internals = useInternalNodes(nodeIds);
+  const dragging = nodes.some((n) => n.dragging);
+  const geometry = useMemo(() => {
+    if (wireStyle === "curved") return null;
+    const rects = [], hb = {};
+    for (const n of internals) {
+      const w = n.measured && n.measured.width, h = n.measured && n.measured.height;
+      if (!w || !h || !n.internals.handleBounds) return null; // not measured yet
+      const p = n.internals.positionAbsolute;
+      rects.push({ id: n.id, x: p.x, y: p.y, w, h });
+      const pos = {};
+      (n.internals.handleBounds.source || []).forEach((b) => { pos["s:" + b.id] = [p.x + b.x + b.width, p.y + b.y + b.height / 2]; });
+      (n.internals.handleBounds.target || []).forEach((b) => { pos["t:" + b.id] = [p.x + b.x, p.y + b.y + b.height / 2]; });
+      hb[n.id] = pos;
+    }
+    const wires = [];
+    for (const e of edges) {
+      const a = hb[e.source] && hb[e.source]["s:" + e.sourceHandle], b = hb[e.target] && hb[e.target]["t:" + e.targetHandle];
+      if (a && b) wires.push({ id: e.id, sx: a[0], sy: a[1], tx: b[0], ty: b[1], source: e.source, target: e.target });
+    }
+    const key = JSON.stringify([rects.map((r) => [r.id, Math.round(r.x), Math.round(r.y), Math.round(r.w), Math.round(r.h)]), wires.map((w) => [w.id, Math.round(w.sx), Math.round(w.sy), Math.round(w.tx), Math.round(w.ty)])]);
+    return { rects, wires, key };
+  }, [internals, edges, wireStyle]);
+  const [routes, setRoutes] = useState({});
+  const routeKey = useRef("");
+  useEffect(() => {
+    if (!geometry || dragging || geometry.key === routeKey.current) return;
+    const t = setTimeout(() => {
+      routeKey.current = geometry.key;
+      const r = routeAll(geometry.rects, geometry.wires);
+      setRoutes(r || {});
+    }, 30);
+    return () => clearTimeout(t);
+  }, [geometry, dragging]);
+  const tidy = () => {
+    if (readOnly || !nodes.length) return;
+    const pos = tidyLayout(nodes, edges);
+    const minY = Math.min(...nodes.map((n) => n.position.y)), minX = Math.min(...nodes.map((n) => n.position.x));
+    hist.current.past.push(snapshotState()); hist.current.future = [];
+    setNodes((ns) => ns.map((n) => (pos[n.id] ? { ...n, position: { x: Math.round(minX + pos[n.id].x), y: Math.round(minY + pos[n.id].y) } } : n)));
+    setDirty(true);
+    setTimeout(() => rf.fitView({ padding: 0.15, maxZoom: 1, duration: 300 }), 350);
+  };
   const equipment = useMemo(() => Object.fromEntries(((meta && meta.equipment) || []).map((e) => [e.tag, e])), [meta]);
   // Monitoring sheets without a Node-RED result: calculate in this browser from Home Assistant states (read only).
   const nodeRedLive = !!(live && Date.now() - live.received_at < 90000);
@@ -786,7 +863,7 @@ function Editor({ hass, boot, initialSheet }) {
     return p ? catalog.port_types[resolvePortType(n.data.block, p, catalog)]?.color : "#667";
   };
   const errors = issues.filter((i) => i.severity === "error");
-  const ctx = { t3Points, catalog, hass, issuesByBlock, issuesByWire, snapshot, mode, readOnly, equipment, now: mode === MODE.SIM && sim.state ? sim.state.clock : now, nodeById, liveOk, wireColor };
+  const ctx = { t3Points, catalog, hass, issuesByBlock, issuesByWire, snapshot, mode, readOnly, equipment, now: mode === MODE.SIM && sim.state ? sim.state.clock : now, nodeById, liveOk, wireColor, routes, wireStyle };
 
   const selNode = selection && selection.kind === "node" && nodeById[selection.id];
   const trendEntity = (() => {
@@ -852,6 +929,8 @@ function Editor({ hass, boot, initialSheet }) {
           </>}
           <button className="btn" disabled={!sheet} onClick={exportSheet}>Export</button>
           <button className="btn" disabled={!sheet} onClick={exportDocument} data-testid="export-doc">Document</button>
+          <button className="btn" disabled={!sheet} onClick={() => setWireStyle(wireStyle === "curved" ? "routed" : "curved")} title="Orthogonal auto-routed wires or curved wires" data-testid="wire-style">Wires: {wireStyle === "curved" ? "Curved" : "Auto-route"}</button>
+          {role === "editor" && <button className="btn" disabled={!sheet || readOnly || imported} onClick={tidy} title={imported ? "Generated sheets keep the program layout" : "Arrange blocks left to right by signal flow (undo with Ctrl+Z)"} data-testid="tidy-layout">Tidy Layout</button>}
           <button className="btn" disabled={!info} onClick={() => setDialog({ kind: "revisions" })}>Revisions{latestRev ? ` (r${latestRev})` : ""}</button>
           {role === "editor" && <>
             <span className="sep" />
@@ -859,6 +938,7 @@ function Editor({ hass, boot, initialSheet }) {
             <button className="btn" disabled={!lastDeploy || sheetLocked} onClick={() => setDialog({ kind: "rollback" })}>Rollback Test</button>
             <button className="btn" disabled title={production.reason}>Publish to Production</button>
             {sheet && sheet.mode === "t3000" && <button className="btn" disabled={imported} title={imported ? "Generated from a controller program: documentation only" : ""} onClick={() => setDialog({ kind: "t3compile" })} data-testid="t3-compile">Compile T3000</button>}
+            {sheet && sheet.mode === "t3000" && <button className="btn primary send" disabled={imported || sheetLocked || mode !== MODE.EDIT || errors.length > 0} title={imported ? "Generated from a controller program: documentation only" : errors.length ? "Fix validation errors first" : "Save, compile and load this sheet to its controller in one step"} onClick={() => setDialog({ kind: "send" })} data-testid="t3-send">Send to Controller</button>}
             {sheet && sheet.mode === "t3000" && <button className="btn" disabled={!latestRev || imported || sheetLocked} title={imported ? "Generated from a controller program: documentation only" : latestRev ? "" : "Save a revision first"} onClick={() => setDialog({ kind: "t3upload", rev: latestRev })} data-testid="t3-upload">Controller…</button>}
             <button className="btn" disabled={!sheet || sheetLocked} onClick={() => setDialog({ kind: "delete" })} data-testid="delete-sheet">Delete Sheet</button>
           </>}
@@ -957,6 +1037,7 @@ function Editor({ hass, boot, initialSheet }) {
             onRestore={async (rev) => { await ws({ type: "bas_wiresheet/restore", sheet_id: sheetId, revision: rev }); await loadSheet(sheetId); setDialog(null); notify(`Revision ${rev} restored as draft`); }}
             onDeploy={(rev) => setDialog({ kind: "deploy", rev })} />
         )}
+        {dialog && dialog.kind === "send" && <SendDialog ws={ws} sheet={sheet} dirty={dirty} onSaved={async () => { setDirty(false); await refreshList(); setInfo(await ws({ type: "bas_wiresheet/get", sheet_id: sheetId })); }} onClose={() => setDialog(null)} onDone={async () => setInfo(await ws({ type: "bas_wiresheet/get", sheet_id: sheetId }))} />}
         {dialog && dialog.kind === "t3upload" && <T3UploadDialog ws={ws} sheetId={sheetId} rev={dialog.rev} info={info} onClose={() => setDialog(null)} onChanged={async () => setInfo(await ws({ type: "bas_wiresheet/get", sheet_id: sheetId }))} />}
         {dialog && dialog.kind === "delete" && <DeleteDialog ws={ws} sheet={sheet} onClose={() => setDialog(null)} onDone={async () => { setDialog(null); const r = await ws({ type: "bas_wiresheet/list" }); await refreshList(); if (r.sheets.length) await loadSheet(r.sheets[0].id); else window.location.reload(); notify("Sheet deleted"); }} />}
         {dialog && dialog.kind === "t3compile" && <T3CompileDialog ws={ws} sheet={sheet} onClose={() => setDialog(null)} />}
@@ -1106,6 +1187,63 @@ function SheetAccess({ ws, sheetId, info, onSaved }) {
       {msg && <div className="ok-txt small">{msg}</div>}
       {err && <div className="errtxt small" data-testid="access-error">{err}</div>}
     </div>
+  );
+}
+
+/* One-step send: save revision, compile, compare with the controller, then write + verify + start with one click. */
+function SendDialog({ ws, sheet, dirty, onSaved, onClose, onDone }) {
+  const [check, setCheck] = useState(null);
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(true);
+  const [start, setStart] = useState(true);
+  const [done, setDone] = useState(null);
+  const run = async () => {
+    setBusy(true); setErr(null); setCheck(null);
+    try {
+      if (dirty) await ws({ type: "bas_wiresheet/save_draft", sheet });
+      const r = await ws({ type: "bas_wiresheet/t3_send_check", sheet_id: sheet.id });
+      setCheck(r); setStart(true); await onSaved();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+  useEffect(() => { run(); }, []); // eslint-disable-line
+  const send = async () => {
+    setBusy(true); setErr(null);
+    try {
+      const r = await ws({ type: "bas_wiresheet/t3_send_apply", token: check.token, start });
+      if (!r.ok) throw new Error(`Send failed: ${r.error}. Previous program ${r.restored ? "restored" : "NOT restored: " + (r.restore_error || "")}`);
+      setDone(r); await onDone();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+  const t3 = sheet.t3000 || {};
+  return (
+    <Modal title="Send to Controller" onClose={onClose}
+      actions={check && !done && <button className="btn primary" disabled={busy} onClick={send} data-testid="send-apply">{check.kind === "replace" ? `Replace Program ${check.program}` : `Load Program ${check.program}`}{start ? " and Run" : ""}</button>}>
+      {busy && !check && !done && <div className="muted" data-testid="send-busy">{dirty ? "Saving, compiling and reading the controller…" : "Compiling and reading the controller…"}</div>}
+      {err && <div className="errtxt" data-testid="send-error">{err}</div>}
+      {err && !check && <button className="btn" onClick={run}>Try Again</button>}
+      {check && !done && <div data-testid="send-check">
+        <div className="send-steps">
+          <span className="ok-txt">✓ {check.committed ? `Saved as revision ${check.revision}` : `Revision ${check.revision}`}</span>
+          <span className="ok-txt">✓ Compiled · {check.new_bytes} bytes</span>
+          <span className="ok-txt">✓ Controller read</span>
+        </div>
+        <div className="kv"><span>Controller</span><b>{check.instance} · Program {check.program}</b></div>
+        <div className="kv"><span>On the controller now</span><b data-testid="send-kind">{check.kind === "replace" ? `A program${check.running ? ", running" : ", stopped"}: it will be replaced (a backup is kept; Restore in Programs)` : "Empty: first load"}</b></div>
+        {check.same && <div className="chip ok">Same logic as the controller already runs</div>}
+        <div className="kv"><span>Writes</span><b className="mono">{check.writes.join(", ") || "None"}</b></div>
+        {check.modbus_reads.length > 0 && <div className="kv"><span>Modbus reads</span><b className="mono">{check.modbus_reads.join(", ")}</b></div>}
+        {check.diff.length > 0 ? <pre className="mono small diff" data-testid="send-diff">{check.diff.slice(2).map((l, i) => <div key={i} className={l[0] === "+" ? "add" : l[0] === "-" ? "del" : l[0] === "@" ? "hunk" : ""}>{l}</div>)}</pre>
+          : <pre className="mono small">{check.listing}</pre>}
+        <label className="field"><span><input type="checkbox" checked={start} onChange={(e) => setStart(e.target.checked)} data-testid="send-start" /> Run the program after sending</span></label>
+        <p className="muted small">Writes program {check.program} on controller {t3.device_instance}, reads it back and {start ? "starts it" : "leaves it as it was"}. On any error the previous program is put back.</p>
+      </div>}
+      {done && <div data-testid="send-done">
+        <div className="ok-txt"><b>Sent and verified.</b> Program {check.program} is {done.status === "running" ? "running" : "loaded (stopped)"} · revision {done.revision}.</div>
+        <div className="row" style={{ marginTop: 8 }}><button className="btn primary" onClick={onClose}>Close</button></div>
+      </div>}
+    </Modal>
   );
 }
 

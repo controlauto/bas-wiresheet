@@ -33,6 +33,9 @@ class SimController:
         self.tables = {1: [bytearray(45) for _ in range(64)], 2: [bytearray(46) for _ in range(64)], 3: [bytearray(39) for _ in range(128)],
                        4: [bytearray(28) for _ in range(16)], 5: [bytearray(42) for _ in range(8)], 6: [bytearray(33) for _ in range(4)],
                        17: [bytearray(144) for _ in range(8)], 18: [bytearray(46) for _ in range(4)], 41: [bytearray([255] * 72) for _ in range(8)]}
+        st = bytearray(400); st[0:4] = bytes([127, 0, 0, 1]); st[38:41] = bytes([7, 0, 1]); st[44:47] = bytes([6, 6, 6])
+        st[52:55] = b"SIM"; st[73] = 4
+        self.tables[98] = [st]                      # controller settings (Str_Setting_Info): panel 4, COM0 Modbus Master, COM2 MS/TP
         self.no_flags = False                       # emulate firmware without the schedule flag table
         self.table_writes = []                  # like real firmware: a running program changes its timer bytes and error byte
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

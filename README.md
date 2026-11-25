@@ -13,6 +13,8 @@ and TEMCO controllers on **BACnet MS/TP** behind a BACnet router are supported.
 **Controllers (TEMCO only)**
 - **Explorer**: inputs, outputs and variables of each controller with value, units, auto/manual, port type, freshness.
   Write values; edit description, label, auto/manual, and variable type and units (T3000 point tables, read back to verify).
+  **Control** any output or variable directly on the controller (Manual with ON/OFF or a value, or back to Auto), also
+  points that have no Home Assistant entity; **Read from Controller** lists all 64 outputs, 64 inputs and 128 variables.
 - **Programs**: read all 16 programs, view the Control Basic listing, edit and compile it, compare with the controller,
   update the running program (typed confirmation), restore the previous version, start, stop and remove.
 - **Program Watch**: every night (and on request) all programs are read and stored (last 20 versions); a change made
@@ -21,12 +23,19 @@ and TEMCO controllers on **BACnet MS/TP** behind a BACnet router are supported.
   annual routines (holiday calendar), edited on the controller and read back.
 - **PID loops**: the 16 T3000 PID controllers (input, setpoint, output, P, I, D, bias, action, auto/manual) with tuning.
 - **Export**: programs as T3000 program-editor text files (`PRGnn.txt`, *Load File* in T3000) plus exact byte code.
+- **Ports**: panel number and the RS-485 ports (Modbus Master, Modbus Slave, BACnet MS/TP, unused) with baud rate.
 - **Discovery**: Who-Is through the BACnet/IP integration; TEMCO controllers on BACnet/IP and MS/TP.
 
 **Wire sheets**
-- 36 blocks in 9 families, each with its own colour and symbol: inputs, T3000 points, logic (AND, OR, NOT, XOR, SR latch,
+- 38 blocks in 10 families, each with its own colour and symbol: inputs, T3000 points, logic (AND, OR, NOT, XOR, SR latch,
   edge pulse), math (add … moving average, rate of change, counter), control (limit, scale, hysteresis, select, PI,
-  rate limit), timers, data quality (freshness), alarms (range check, alarm with delay and severity) and displays.
+  rate limit), timers, Modbus, data quality (freshness), alarms (range check, alarm with delay and severity) and displays.
+- **Modbus Read / Modbus Write** blocks for any Modbus RTU device (meters, drives, other brands) on a controller port in
+  Modbus Master mode: holding and input registers, coils, discrete inputs and 32-bit floats in any byte order, with scaling.
+  They compile to Control Basic remote points (`<panel>.<slave>.MB_REG<n>`).
+- **Send to Controller**: one step from a T3000 sheet — saves a revision, compiles, shows the change against the
+  controller, then loads or replaces the program, verifies it, keeps a backup and starts it.
+- Orthogonal **auto-routed wires** (or curved), **Tidy Layout**, and blocks that show the point label.
 - **T3000 sheets** compile to Control Basic and load to a controller program; generated code is checked to survive
   T3000's listing round trip. A sheet can also be **generated from an existing controller program**.
 - **Monitoring sheets** use Home Assistant entities: data freshness from `last_reported`, logic and alarms.
@@ -97,7 +106,7 @@ List the router per network under `mstp_routers`, or give the device `address: r
 
 ## Tests
 
-`node --test tests/*.test.js` and `pytest tests/test_runtime_parity.py` (random sheets and telemetry run through both runtimes).
+`node --test tests/*.test.js tests/*.test.mjs` and `pytest tests/test_runtime_parity.py` (random sheets and telemetry run through both runtimes).
 
 ## License
 

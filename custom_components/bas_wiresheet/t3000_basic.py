@@ -20,8 +20,39 @@ from typing import Any, Callable
 POINT_RE = re.compile(r"^(IN|OUT|VAR)([1-9]\d*)$")
 POINT_LIMITS = {"IN": 64, "OUT": 64, "VAR": 128}
 COMPARE_OPS = {">": ">", ">=": ">=", "<": "<", "<=": "<=", "==": "=", "!=": "<>"}
-T3000_BLOCKS = {"t3_read", "t3_write", "constant", "compare", "and", "or", "not", "on_delay", "off_delay", "status_display", "xor", "latch", "range_check",
+T3000_BLOCKS = {"t3_read", "t3_write", "modbus_read", "modbus_write", "constant", "compare", "and", "or", "not", "on_delay", "off_delay", "status_display", "xor", "latch", "range_check",
                 "add", "subtract", "multiply", "divide", "minimum", "maximum", "absolute", "limit", "scale", "hysteresis", "select", "pi"}
+# Modbus RTU points of any device on the controller's RS-485 port in Modbus Master mode. Control Basic remote point
+# syntax <panel>.<slave id>.<type><register> (T3000 CM5 point type names; compiled and listed back by T3000's own code).
+MODBUS_TYPES = {
+    "holding": "MB_REG", "input_register": "MB_INPUTREG", "coil": "MB_COIL", "discrete_input": "MB_DISINPUT",
+    "holding_float_abcd": "MB_REG_FLOAT_ABCD", "holding_float_cdab": "MB_REG_FLOAT_CDAB", "holding_float_badc": "MB_REG_FLOAT_BADC",
+    "holding_float_dcba": "MB_REG_FLOAT_DCBA", "input_float_abcd": "MB_INPUT_FLOAT_ABCD", "input_float_cdab": "MB_INPUT_FLOAT_CDAB",
+    "input_float_badc": "MB_INPUT_FLOAT_BADC", "input_float_dcba": "MB_INPUT_FLOAT_DCBA",
+}
+MODBUS_WRITABLE = {"holding", "coil", "holding_float_abcd", "holding_float_cdab", "holding_float_badc", "holding_float_dcba"}
+
+
+def modbus_point(panel: int, params: dict, write: bool = False) -> tuple[str | None, str | None]:
+    """(Control Basic point, error)."""
+    rtype = params.get("register_type", "holding")
+    if rtype not in MODBUS_TYPES:
+        return None, f"Unknown register type {rtype!r}"
+    if write and rtype not in MODBUS_WRITABLE:
+        return None, "Only holding registers and coils can be written"
+    try:
+        slave, addr = int(params.get("slave")), int(params.get("address"))
+    except (TypeError, ValueError):
+        return None, "Slave ID and register must be whole numbers"
+    if not 1 <= slave <= 254:
+        return None, "Slave ID must be 1-254"
+    if not 0 <= addr <= 65535:
+        return None, "Register must be 0-65535"
+    if not 1 <= int(panel or 0) <= 254:
+        return None, "The controller's panel number is unknown (read it from the controller first)"
+    return f"{int(panel)}.{slave}.{MODBUS_TYPES[rtype]}{addr}", None
+
+
 SIMPLE_RE = re.compile(r"^(-?\d+(\.\d+)?|(IN|OUT|VAR)\d+)$")
 MAX_FIXED = 2_147_483_647
 
@@ -70,6 +101,11 @@ class _Gen:
         self.issues: list[dict] = []
         self.memo: dict[tuple[str, str], str] = {}
         self.reads: set[str] = set()
+        self.modbus_reads: set[str] = set()
+        try:
+            self.panel = int((sheet.get("t3000") or {}).get("panel") or 0)
+        except (TypeError, ValueError):
+            self.panel = 0
         self.writes: dict[str, str] = {}
         self.work_used: list[str] = []
         self.work_free: list[str] = []
@@ -150,6 +186,20 @@ class _Gen:
             name = f"{parsed[0]}{parsed[1]}"
             self.reads.add(name)
             return f"( {name} <> 0 )" if p.get("value_type") == "boolean" else name
+        if t == "modbus_read":
+            name, error = modbus_point(self.panel, p)
+            if error:
+                self.err("modbus_point", error, bid, "address")
+                return "0"
+            self.modbus_reads.add(name)
+            expr = name
+            scale = p.get("scale", 1)
+            if scale not in (None, "", 1, 1.0):
+                try:
+                    expr = f"( {name} * {format_number(scale)} )"
+                except (TypeError, ValueError) as e:
+                    self.err("t3_number", str(e), bid, "scale")
+            return f"( {expr} <> 0 )" if p.get("value_type") == "boolean" else expr
         if t == "constant":
             if p.get("value_type") == "boolean":
                 return "1" if p.get("value") is True else "0"
@@ -314,6 +364,17 @@ class _Gen:
         self.writes[name] = bid
         return name
 
+    def check_modbus_write(self, b: dict) -> str | None:
+        name, error = modbus_point(self.panel, b.get("params") or {}, write=True)
+        if error:
+            self.err("modbus_point", error, b["id"], "address")
+            return None
+        if name in self.writes:
+            self.err("t3_write_twice", f"{name} is written by two blocks", b["id"], "address")
+            return None
+        self.writes[name] = b["id"]
+        return name
+
     def run(self) -> None:
         cfg = self.sheet.get("t3000") or {}
         try:
@@ -326,10 +387,10 @@ class _Gen:
             allowed, reason = self.guard(kind, idx)
             if kind != "VAR" or not allowed:
                 self.err("t3_work_denied", f"Work variable {w} is not usable: {reason if not allowed else 'must be a VAR'}")
-        writers = sorted((b for b in self.blocks.values() if b.get("type") == "t3_write"), key=lambda x: x["id"])
+        writers = sorted((b for b in self.blocks.values() if b.get("type") in ("t3_write", "modbus_write")), key=lambda x: x["id"])
         if not writers:
-            self.err("t3_no_write", "A T3000 program needs at least one T3000 Write block")
-        targets = [(b, self.check_write(b)) for b in writers]
+            self.err("t3_no_write", "A T3000 program needs at least one T3000 Write or Modbus Write block")
+        targets = [(b, self.check_modbus_write(b) if b.get("type") == "modbus_write" else self.check_write(b)) for b in writers]
         for b in self.blocks.values():
             if b.get("type") == "t3_read":
                 parsed = parse_point((b.get("params") or {}).get("point"))
@@ -343,6 +404,13 @@ class _Gen:
             source = self.input(b["id"], "in")
             if not name:
                 continue
+            if b.get("type") == "modbus_write":
+                scale = (b.get("params") or {}).get("scale", 1)
+                if scale not in (None, "", 1, 1.0):
+                    try:
+                        source = f"( {source} * {format_number(scale)} )"
+                    except (TypeError, ValueError) as e:
+                        self.err("t3_number", str(e), b["id"], "scale")
             if (b.get("params") or {}).get("value_type") == "boolean":
                 self.emit(f"IF {source} THEN {name} = 1 ELSE {name} = 0")
             else:
@@ -363,4 +431,5 @@ def generate(sheet: dict, guard: Guard) -> dict[str, Any]:
         numbered.append(f"{(len(gen.lines) + 1) * 10} END")
         source = "\r\n".join(numbered) + "\r\n"
     return {"source": source, "issues": gen.issues, "reads": sorted(gen.reads), "writes": sorted(gen.writes), "work_vars": gen.work_used,
+            "modbus_reads": sorted(gen.modbus_reads), "panel": gen.panel,
             "state_map": gen.state_map if not errors else {}}

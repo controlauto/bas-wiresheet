@@ -389,6 +389,21 @@
   EVAL.t3_write = function (b, inp) {
     return { _display: inp["in"] || bad("invalid", "Not connected") };
   };
+  /* Modbus RTU points of any device on the controller's RS-485 port (Modbus Master). Simulated by point key, e.g. "5.MB_REG100". */
+  var MB_TYPES = { holding: "MB_REG", input_register: "MB_INPUTREG", coil: "MB_COIL", discrete_input: "MB_DISINPUT",
+    holding_float_abcd: "MB_REG_FLOAT_ABCD", holding_float_cdab: "MB_REG_FLOAT_CDAB", holding_float_badc: "MB_REG_FLOAT_BADC", holding_float_dcba: "MB_REG_FLOAT_DCBA",
+    input_float_abcd: "MB_INPUT_FLOAT_ABCD", input_float_cdab: "MB_INPUT_FLOAT_CDAB", input_float_badc: "MB_INPUT_FLOAT_BADC", input_float_dcba: "MB_INPUT_FLOAT_DCBA" };
+  function modbusKey(p) { return String(Number(p.slave)) + "." + (MB_TYPES[p.register_type || "holding"] || "MB_REG") + String(Number(p.address)); }
+  EVAL.modbus_read = function (b, inp, st, now, ctx) {
+    var p = b.params || {}, name = modbusKey(p), x = ctx.points && ctx.points[name];
+    var meta = { src: name, unit: p.unit || null };
+    if (x === undefined || x === null) return { value: bad("no_telemetry", "No value for " + name, meta) };
+    var v = Number(x) * (p.scale === undefined || p.scale === "" ? 1 : Number(p.scale));
+    return { value: val(p.value_type === "boolean" ? v !== 0 : v, "good", meta) };
+  };
+  EVAL.modbus_write = function (b, inp) {
+    return { _display: inp["in"] || bad("invalid", "Not connected") };
+  };
 
   /* PI with clamped integral. The controller version integrates once per second. */
   EVAL.pi = function (b, inp, st, now) {
@@ -623,5 +638,5 @@
     return timeline;
   }
 
-  return { SCHEMA: SCHEMA, FRESHNESS: FRESHNESS, createRuntime: createRuntime, createSourceEmulator: createSourceEmulator, runScenario: runScenario, toSample: toSample, topoOrder: topoOrder };
+  return { SCHEMA: SCHEMA, FRESHNESS: FRESHNESS, createRuntime: createRuntime, createSourceEmulator: createSourceEmulator, runScenario: runScenario, toSample: toSample, topoOrder: topoOrder, modbusKey: modbusKey };
 });

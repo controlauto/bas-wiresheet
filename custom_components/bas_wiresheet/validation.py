@@ -159,6 +159,11 @@ def validate_sheet(
         issues.extend(_validate_params(b, bdef, known_entities))
         if b.get("type") in ("cb_unmapped", "cb_local_read", "cb_local_write") and not imported:
             issues.append(_issue("t3_block_mode", "This block only exists on sheets generated from a program", block=bid))
+        if b.get("type") in ("modbus_read", "modbus_write") and mode != "t3000":
+            issues.append(_issue("t3_block_mode", f"{bdef['label']} runs on the controller: only allowed on T3000 program sheets", block=bid))
+        if b.get("type") == "modbus_write" and (b.get("params") or {}).get("register_type") not in (None, "holding", "coil", "holding_float_abcd",
+                                                                                                    "holding_float_cdab", "holding_float_badc", "holding_float_dcba"):
+            issues.append(_issue("modbus_write_type", "Only holding registers and coils can be written", block=bid, param="register_type"))
         if b.get("type") in T3_ONLY_BLOCKS and mode != "t3000":
             issues.append(_issue("t3_block_mode", f"{bdef['label']} is only allowed on T3000 program sheets", block=bid))
         if mode == "t3000" and b.get("type") in MONITORING_ONLY_BLOCKS:

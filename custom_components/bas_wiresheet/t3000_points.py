@@ -3,7 +3,9 @@
 Layouts and commands from T3000 (CM5/ud_str.h): READOUTPUT_T3000 = 1, READINPUT_T3000 = 2, READVARIABLE_T3000 = 3,
 writes are 100 + read. Str_out_point 45 bytes, Str_in_point 46 bytes, Str_variable_point 39 bytes, packed.
 An edit reads the point, changes only the requested fields, writes it back and reads it again to verify.
-The value field is written back as just read; Home Assistant writes values through the BACnet integration instead.
+Outputs and variables can also be controlled directly (no Home Assistant entity needed): auto/manual plus the value.
+T3000 stores the value as engineering value x 1000 (digital: 0 = OFF, 1000 = ON; verified on a T3-LB).
+In auto the controller program owns the value, so a value is verified only when the point is left in manual.
 """
 from __future__ import annotations
 
@@ -32,7 +34,8 @@ OFFSETS = {
     "IN": {"description": (0, 21), "label": (21, 9), "value": 30, "decom": 35, "auto_manual": 39, "digital_analog": 40, "range": 45},
     "VAR": {"description": (0, 21), "label": (21, 9), "value": 30, "auto_manual": 34, "digital_analog": 35, "range": 38},
 }
-EDITABLE = {"description", "label", "auto_manual", "digital_analog", "range"}
+EDITABLE = {"description", "label", "auto_manual", "digital_analog", "range", "value"}
+VALUE_KINDS = {"OUT", "VAR"}
 
 
 def _text(raw: bytes) -> str:
@@ -46,6 +49,7 @@ def decode(kind: str, raw: bytes) -> dict[str, Any]:
     out = {"description": _text(raw[d0:d0 + dl]), "label": _text(raw[l0:l0 + ll]),
            "value_raw": struct.unpack_from("<i", raw, o["value"])[0], "auto_manual": "manual" if raw[o["auto_manual"]] else "auto",
            "digital_analog": "analog" if raw[o["digital_analog"]] else "digital", "range": raw[o["range"]]}
+    out["value"] = out["value_raw"] / 1000.0
     if kind == "VAR":
         names = VARIABLE_ANALOG_UNITS if out["digital_analog"] == "analog" else DIGITAL_UNITS
         out["range_name"] = names[out["range"]] if out["range"] < len(names) else f"custom {out['range']}"
@@ -85,6 +89,23 @@ def encode_changes(kind: str, raw: bytes, changes: dict[str, Any]) -> bytes:
         if not 0 <= r <= 255:
             raise UploadRefused("range must be 0-255")
         buf[o["range"]] = r
+    if "value" in changes:
+        if kind not in VALUE_KINDS:
+            raise UploadRefused("Inputs are measured by the controller; only outputs and variables take a value")
+        try:
+            v = float(changes["value"])
+        except (TypeError, ValueError):
+            raise UploadRefused("value must be a number") from None
+        digital = not buf[o["digital_analog"]]
+        if digital:
+            if v not in (0, 1):
+                raise UploadRefused("Digital point: value must be 1 (ON) or 0 (OFF)")
+            raw_v = 1000 if v else 0
+        else:
+            if not -2000000 <= v <= 2000000:
+                raise UploadRefused("value out of range")
+            raw_v = int(round(v * 1000))
+        struct.pack_into("<i", buf, o["value"], raw_v)
     return bytes(buf)
 
 
@@ -117,7 +138,8 @@ def edit_point(client, expected_device: int, kind: str, index: int, changes: dic
     write_struct(client, kind, index, target)
     after = read_struct(client, kind, index)
     want, got = decode(kind, target), decode(kind, after)
-    bad = [k for k in changes if want.get(k) != got.get(k)]
+    check = [k for k in changes if not (k == "value" and got["auto_manual"] == "auto")]  # in auto the program owns the value
+    bad = [k for k in check if want.get(k) != got.get(k)]
     if bad:
         raise BacnetError(f"{kind}{index}: the controller did not keep {', '.join(bad)}")
     return {"ok": True, "changed": True, "before": decode(kind, before), "after": got}

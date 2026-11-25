@@ -227,3 +227,55 @@ export function PidLoops({ ws, device, canWrite }) {
     </div>
   );
 }
+
+/* ---------------- RS-485 ports (Modbus Master / Slave, MS/TP) ---------------- */
+export function Ports({ ws, device, canWrite }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  const [edit, setEdit] = useState(null);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(null);
+  const load = () => ws({ type: "bas_wiresheet/t3_settings", instance: device.instance }).then((r) => { setData(r); setErr(null); }).catch((e) => setErr(e.message));
+  useEffect(() => { setData(null); load(); }, [device.instance]); // eslint-disable-line
+  const save = async () => {
+    setBusy(true); setErr(null); setDone(null);
+    const cur = data.ports.find((p) => p.port === edit.port);
+    const msg = { type: "bas_wiresheet/t3_port_set", instance: device.instance, port: edit.port, confirm: typed };
+    if (Number(edit.mode) !== cur.mode_code) msg.mode = Number(edit.mode);
+    if (Number(edit.baud) !== cur.baud) msg.baud = Number(edit.baud);
+    try { const r = await ws(msg); setDone(r.changed ? `${edit.port} saved and verified on the controller.` : "No change."); setEdit(null); setTyped(""); await load(); }
+    catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+  return (
+    <div className="pad xp-scroll" data-testid="t3-ports">
+      <h3 style={{ margin: "0 0 4px" }}>RS-485 Ports</h3>
+      <p className="muted small">Set a port to <b>Modbus Master</b> to read and write any Modbus RTU device on it (meters, drives, other brands) with the Modbus Read / Modbus Write blocks of a T3000 sheet. <b>Modbus Slave</b> lets another Modbus master read this controller. Read from the controller; changes are read back to verify.</p>
+      {err && <div className="errtxt">{err}</div>}
+      {!data && !err && <div className="muted">Reading the controller settings…</div>}
+      {data && <>
+        <div className="muted small">Panel <b className="mono" data-testid="t3-panel-number">{data.panel}</b> · {data.panel_name} · {data.ip} · Modbus points in programs are written <span className="mono">{data.panel}.&lt;slave id&gt;.MB_REG&lt;n&gt;</span></div>
+        <table className="points" data-testid="t3-ports-table"><thead><tr><th>Port</th><th>Mode</th><th>Baud Rate</th><th /></tr></thead>
+          <tbody>{data.ports.map((p) => (<React.Fragment key={p.port}>
+            <tr><td className="mono">{p.port}</td>
+              <td>{p.mode_code === 7 ? <span className="chip ok">{p.mode}</span> : p.mode_code === 2 ? <span className="chip unk">{p.mode}</span> : p.mode}</td>
+              <td className="mono">{p.baud || "?"}</td>
+              <td>{canWrite && <button className="btn sm" onClick={() => { setEdit(edit && edit.port === p.port ? null : { port: p.port, mode: p.mode_code, baud: p.baud }); setTyped(""); setDone(null); }} data-testid={`port-edit-${p.port}`}>Change</button>}</td></tr>
+            {edit && edit.port === p.port && <tr><td colSpan={4}><div className="xp-config row" style={{ gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+              <label className="field" style={{ margin: 0 }}><span>Mode</span><select value={edit.mode} onChange={(e) => setEdit({ ...edit, mode: Number(e.target.value) })} data-testid="port-mode">
+                {Object.entries(data.modes).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                {!(String(p.mode_code) in data.modes) && <option value={p.mode_code}>{p.mode}</option>}</select></label>
+              <label className="field" style={{ margin: 0 }}><span>Baud Rate</span><select value={edit.baud} onChange={(e) => setEdit({ ...edit, baud: Number(e.target.value) })} data-testid="port-baud">
+                {data.bauds.map((b) => <option key={b} value={b}>{b}</option>)}</select></label>
+              <label className="field" style={{ margin: 0 }}><span>Type {p.port} to confirm</span><input className="mono" style={{ width: 80 }} value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="port-confirm" /></label>
+              <button className="btn primary" disabled={busy || typed.trim().toUpperCase() !== p.port || (Number(edit.mode) === p.mode_code && Number(edit.baud) === p.baud)} onClick={save} data-testid="port-save">Save to Controller</button>
+              <button className="btn" onClick={() => setEdit(null)}>Cancel</button>
+              {(p.mode_code === 1 || p.mode_code === 9) && Number(edit.mode) !== p.mode_code && <div className="errtxt small" style={{ flexBasis: "100%" }}>This port runs BACnet MS/TP now: devices on it lose communication when the mode changes.</div>}
+            </div></td></tr>}
+          </React.Fragment>))}</tbody></table>
+        {done && <div className="ok-txt small" data-testid="port-done">{done}</div>}
+      </>}
+    </div>
+  );
+}

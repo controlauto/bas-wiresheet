@@ -183,3 +183,7 @@ table.simtab, table.points { width: 100%; border-collapse: collapse; margin: 6px
 .cal-g b { font-weight: 400; padding: 2px 0; border-radius: 2px; cursor: pointer; background: #1a2330; }
 .cal-g b:hover { outline: 1px solid var(--line); }
 .cal-g b.on { background: #d95926; color: #111; font-weight: 700; }
+.blk-sub .pt-label { font-weight: 600; color: var(--text, #e6edf3); margin-right: 4px; }
+.send-steps { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; font-size: 12px; }
+pre.diff div.add { color: #3fb950; } pre.diff div.del { color: #f85149; } pre.diff div.hunk { color: #8b97a8; }
+pre.diff { max-height: 260px; overflow: auto; }

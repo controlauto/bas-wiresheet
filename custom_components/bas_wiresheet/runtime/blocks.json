@@ -30,6 +30,7 @@
   "Timers",
   "Data Quality",
   "T3000",
+  "Modbus",
   "Alarms",
   "Displays"
  ],
@@ -1309,6 +1310,152 @@
      "unit": "s",
      "min": 0,
      "max": 86400
+    }
+   ]
+  },
+  "modbus_read": {
+   "label": "Modbus Read",
+   "category": "Modbus",
+   "description": "Reads a register or coil of any Modbus RTU device on the controller's RS-485 port (port set to Modbus Master). T3000 program sheets only.",
+   "inputs": [],
+   "outputs": [
+    {
+     "id": "value",
+     "label": "Value",
+     "type": {
+      "param": "value_type"
+     },
+     "unit": {
+      "param": "unit"
+     }
+    }
+   ],
+   "params": [
+    {
+     "id": "slave",
+     "label": "Slave ID",
+     "kind": "number",
+     "required": true,
+     "default": 1,
+     "min": 1,
+     "max": 254
+    },
+    {
+     "id": "register_type",
+     "label": "Register Type",
+     "kind": "enum",
+     "options": [
+      "holding",
+      "input_register",
+      "coil",
+      "discrete_input",
+      "holding_float_abcd",
+      "holding_float_cdab",
+      "holding_float_badc",
+      "holding_float_dcba",
+      "input_float_abcd",
+      "input_float_cdab",
+      "input_float_badc",
+      "input_float_dcba"
+     ],
+     "default": "holding"
+    },
+    {
+     "id": "address",
+     "label": "Register",
+     "kind": "number",
+     "required": true,
+     "default": 0,
+     "min": 0,
+     "max": 65535
+    },
+    {
+     "id": "scale",
+     "label": "Scale (x)",
+     "kind": "number",
+     "default": 1
+    },
+    {
+     "id": "value_type",
+     "label": "Value Type",
+     "kind": "enum",
+     "options": [
+      "number",
+      "boolean"
+     ],
+     "default": "number"
+    },
+    {
+     "id": "unit",
+     "label": "Unit",
+     "kind": "string",
+     "default": ""
+    }
+   ]
+  },
+  "modbus_write": {
+   "label": "Modbus Write",
+   "category": "Modbus",
+   "description": "Writes a holding register or coil of any Modbus RTU device on the controller's RS-485 port (port set to Modbus Master). T3000 program sheets only.",
+   "inputs": [
+    {
+     "id": "in",
+     "label": "In",
+     "type": {
+      "param": "value_type"
+     },
+     "required": true
+    }
+   ],
+   "outputs": [],
+   "params": [
+    {
+     "id": "slave",
+     "label": "Slave ID",
+     "kind": "number",
+     "required": true,
+     "default": 1,
+     "min": 1,
+     "max": 254
+    },
+    {
+     "id": "register_type",
+     "label": "Register Type",
+     "kind": "enum",
+     "options": [
+      "holding",
+      "coil",
+      "holding_float_abcd",
+      "holding_float_cdab",
+      "holding_float_badc",
+      "holding_float_dcba"
+     ],
+     "default": "holding"
+    },
+    {
+     "id": "address",
+     "label": "Register",
+     "kind": "number",
+     "required": true,
+     "default": 0,
+     "min": 0,
+     "max": 65535
+    },
+    {
+     "id": "scale",
+     "label": "Scale (x)",
+     "kind": "number",
+     "default": 1
+    },
+    {
+     "id": "value_type",
+     "label": "Value Type",
+     "kind": "enum",
+     "options": [
+      "number",
+      "boolean"
+     ],
+     "default": "number"
     }
    ]
   }

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { fmtAge, fmtTime, FRESH_CLASS } from "./model.js";
-import { Schedules, PidLoops } from "./ExplorerTables.jsx";
+import { Schedules, PidLoops, Ports } from "./ExplorerTables.jsx";
 
 const TABS = [
   { id: "IN", label: "Inputs" },
@@ -9,6 +9,7 @@ const TABS = [
   { id: "SCH", label: "Schedules" },
   { id: "PID", label: "PID Loops" },
   { id: "PRG", label: "Programs" },
+  { id: "PORT", label: "Ports" },
 ];
 const PORT_LABEL = {
   "physical-digital": "Digital (physical)",
@@ -124,14 +125,14 @@ function PointConfig({ ws, instance, point, onClose, onDone }) {
   const [err, setErr] = useState(null);
   const [done, setDone] = useState(null);
   const load = () => ws({ type: "bas_wiresheet/t3_point_config", instance, category: point.category, index: point.index })
-    .then((r) => { setCfg(r); setEdit({ description: r.description, label: r.label, auto_manual: r.auto_manual, digital_analog: r.digital_analog, range: r.range }); })
+    .then((r) => { setCfg(r); setEdit({ description: r.description, label: r.label, auto_manual: r.auto_manual, digital_analog: r.digital_analog, range: r.range }); return r; })
     .catch((e) => setErr(e.message));
   useEffect(() => { load(); }, []); // eslint-disable-line
   const changes = cfg ? Object.fromEntries(Object.entries(edit).filter(([k, v]) => String(v) !== String(cfg[k]))) : {};
   const save = async () => {
     setBusy(true); setErr(null); setDone(null);
     try { const r = await ws({ type: "bas_wiresheet/t3_point_config_write", instance, category: point.category, index: point.index, changes, confirm: typed });
-      setDone(r.changed ? "Saved and verified on the controller." : "No change."); setTyped(""); await load(); onDone(); }
+      setDone(r.changed ? "Saved and verified on the controller." : "No change."); setTyped(""); onDone(await load()); }
     catch (e) { setErr(e.message); }
     setBusy(false);
   };
@@ -161,6 +162,97 @@ function PointConfig({ ws, instance, point, onClose, onDone }) {
         <div className="muted small">Writes only the changed fields to the controller and reads them back. Programs refer to points by label: renaming a label used in a program changes how the program listing reads. Home Assistant entity names update when the BACnet/IP integration reads the device again.</div>
       </div>
     </td></tr>
+  );
+}
+
+/* Direct output/variable control through T3000 (works whatever the Home Assistant entity type is). */
+function PointControl({ ws, instance, point, onClose, onDone }) {
+  const name = `${point.category}${point.index}`;
+  const [cfg, setCfg] = useState(null);
+  const [am, setAm] = useState("manual");
+  const [val, setVal] = useState("");
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [done, setDone] = useState(null);
+  const load = () => ws({ type: "bas_wiresheet/t3_point_config", instance, category: point.category, index: point.index })
+    .then((r) => { setCfg(r); setVal(r.digital_analog === "digital" ? (r.value ? "1" : "0") : String(r.value)); return r; })
+    .catch((e) => setErr(e.message));
+  useEffect(() => { load(); }, []); // eslint-disable-line
+  const digital = cfg && cfg.digital_analog === "digital";
+  const apply = async (mode, value) => {
+    setBusy(true); setErr(null); setDone(null);
+    const changes = { auto_manual: mode };
+    if (mode === "manual") changes.value = Number(value);
+    try {
+      await ws({ type: "bas_wiresheet/t3_point_config_write", instance, category: point.category, index: point.index, changes, confirm: typed });
+      const r = await load();
+      setDone(mode === "auto" ? `${name} released to Auto: the controller program owns it again (now ${r ? r.value : "?"}).` : `${name} in Manual at ${digital ? (Number(value) ? "ON" : "OFF") : value}: verified on the controller.`);
+      setTyped(""); onDone(r);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+  const ok = typed.trim().toUpperCase() === name && !busy;
+  return (
+    <tr className="prot-normal" data-testid={`t3-control-row-${name}`}><td colSpan={12}>
+      <div className="xp-config">
+        <b>Control {name}</b> {cfg && <span className="muted small">· {cfg.description || cfg.label} · now <b className="mono">{digital ? (cfg.value ? "ON" : "OFF") : cfg.value}</b> · {cfg.auto_manual === "manual" ? <span className="chip dq">Manual</span> : <span className="chip ok">Auto</span>}</span>}
+        {!cfg && !err && <span className="muted"> Reading from the controller…</span>}
+        {cfg && <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <label className="field" style={{ margin: 0 }}><span>Mode</span><select value={am} onChange={(e) => setAm(e.target.value)} data-testid="t3-ctl-am"><option value="manual">Manual (hold value)</option><option value="auto">Auto (program)</option></select></label>
+          {am === "manual" && (digital
+            ? <div className="seg" data-testid="t3-ctl-onoff">{[["1", "ON"], ["0", "OFF"]].map(([v, t]) => <button key={v} className={`seg-b ${val === v ? "on" : ""}`} onClick={() => setVal(v)} data-testid={`t3-ctl-${t.toLowerCase()}`}>{t}</button>)}</div>
+            : <label className="field" style={{ margin: 0 }}><span>Value{point.units ? ` (${point.units})` : ""}</span><input className="mono" type="number" step="any" style={{ width: 110 }} value={val} onChange={(e) => setVal(e.target.value)} data-testid="t3-ctl-value" /></label>)}
+          <label className="field" style={{ margin: 0 }}><span>Type {name} to confirm</span><input className="mono" style={{ width: 90 }} value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="t3-ctl-confirm" /></label>
+          <button className="btn primary" disabled={!ok || (am === "manual" && (val === "" || Number.isNaN(Number(val))))} onClick={() => apply(am, val)} data-testid="t3-ctl-apply">{am === "auto" ? "Release to Auto" : "Apply"}</button>
+          <button className="btn" onClick={onClose}>Close</button>
+        </div>}
+        {err && <div className="errtxt small" data-testid="t3-ctl-error">{err}</div>}
+        {done && <div className="ok-txt small" data-testid="t3-ctl-done">{done}</div>}
+        <div className="muted small">Written to the controller point itself (T3000), so it works for every output and variable, physical outputs included, whatever its Home Assistant entity is. Manual holds the value until you release it to Auto. A Home Assistant automation or BACnet client that commands the same point may still change it.</div>
+      </div>
+    </td></tr>
+  );
+}
+
+/* Every point of one kind read straight from the controller's point table (also points without a Home Assistant entity). */
+function ControllerPoints({ ws, instance, kind, canControl, filter }) {
+  const [rows, setRows] = useState(null);
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(null);
+  const load = async () => { setBusy(true); setErr(null); try { setRows((await ws({ type: "bas_wiresheet/t3_point_table", instance, category: kind })).points); } catch (e) { setErr(e.message); } setBusy(false); };
+  useEffect(() => { setRows(null); load(); }, [instance, kind]); // eslint-disable-line
+  const f = (filter || "").toLowerCase();
+  const shown = (rows || []).filter((r) => !f || `${r.category}${r.index} ${r.label} ${r.description}`.toLowerCase().includes(f));
+  // after a change refresh only that row (a full table read takes a while and would delay the next command)
+  const patch = (pt) => (r) => { if (r) setRows((rs) => rs.map((x) => (x.category === pt.category && x.index === pt.index ? { ...x, ...r, category: x.category, index: x.index } : x))); };
+  const fmt = (r) => (r.digital_analog === "digital" ? (r.value ? "ON" : "OFF") : Number(r.value.toFixed(3)));
+  return (
+    <div className="xp-tablewrap" data-testid="t3-direct">
+      <div className="row pad" style={{ gap: 8, alignItems: "center" }}>
+        <span className="muted small">Read directly from the controller point table: all {kind === "VAR" ? 128 : 64} {kind === "OUT" ? "outputs" : kind === "IN" ? "inputs" : "variables"}, with or without a Home Assistant entity.</span>
+        <button className="btn sm" disabled={busy} onClick={load} data-testid="t3-direct-refresh">{busy ? "Reading…" : "Read Again"}</button>
+      </div>
+      {err && <div className="errtxt pad">{err}</div>}
+      {busy && !rows && <div className="muted pad">Reading the point table from the controller…</div>}
+      {rows && <table className="points xp-table" data-testid="t3-direct-table">
+        <thead><tr><th>#</th><th>Label</th><th>Description</th><th>Value</th><th>Type</th><th>Auto/Man</th><th>Protection</th><th /></tr></thead>
+        <tbody>{shown.map((r) => { const name = `${r.category}${r.index}`; const pt = { category: r.category, index: r.index, units: r.range_name }; return (<React.Fragment key={name}>
+          <tr className={`prot-${r.protection}`}>
+            <td className="mono">{name}</td><td className="mono">{r.label || <span className="muted">—</span>}</td><td>{r.description || <span className="muted">—</span>}</td>
+            <td className="mono">{fmt(r)}</td><td className="small">{r.digital_analog}{r.range_name ? ` · ${r.range_name}` : ` · range ${r.range}`}</td>
+            <td>{r.auto_manual === "manual" ? <span className="chip dq">Manual</span> : <span className="muted">Auto</span>}</td>
+            <td>{r.protection === "locked" ? <span className="chip bad" title={r.protection_reason}>Locked</span> : r.protection === "sandbox" ? <span className="chip unk">Test Sandbox</span> : <span className="muted">—</span>}</td>
+            <td className="nowrap">{canControl && r.protection !== "locked" && <>
+              {kind !== "IN" && <button className="btn sm" onClick={() => setOpen(open === "c" + name ? null : "c" + name)} data-testid={`t3-control-${name}`}>Control</button>}
+              <button className="btn sm" style={{ marginLeft: 4 }} onClick={() => setOpen(open === "f" + name ? null : "f" + name)} data-testid={`t3-config-${name}`}>Configure</button></>}</td>
+          </tr>
+          {open === "c" + name && <PointControl ws={ws} instance={instance} point={pt} onClose={() => setOpen(null)} onDone={patch(pt)} />}
+          {open === "f" + name && <PointConfig ws={ws} instance={instance} point={pt} onClose={() => setOpen(null)} onDone={patch(pt)} />}
+        </React.Fragment>); })}</tbody>
+      </table>}
+    </div>
   );
 }
 
@@ -263,7 +355,9 @@ export default function Explorer({ hass, role, onOpenSheet }) {
   const [now, setNow] = useState(Date.now());
   const [writing, setWriting] = useState(null);
   const [configuring, setConfiguring] = useState(null);
+  const [controlling, setControlling] = useState(null);
   const [discover, setDiscover] = useState(false);
+  const [direct, setDirect] = useState(false);
 
   useEffect(() => {
     ws({ type: "bas_wiresheet/t3_devices" })
@@ -337,15 +431,17 @@ export default function Explorer({ hass, role, onOpenSheet }) {
               {t.label}{counts[t.id] !== undefined ? ` (${counts[t.id]})` : ""}
             </button>
           ))}
+          {["IN", "OUT", "VAR"].includes(tab) && selDev && selDev.programs && selDev.programs.read && <button className={`seg-b ${direct ? "on" : ""}`} onClick={() => setDirect(!direct)} title="Show every point from the controller's own point table" data-testid="t3-direct-toggle">{direct ? "From Controller" : "Read from Controller"}</button>}
           <input className="xp-filter" placeholder="Filter by number, label or entity" value={filter} onChange={(e) => setFilter(e.target.value)} />
         </div>
         {err && <div className="notel pad">{err}</div>}
         {discover ? <Discovery ws={ws} onClose={() => setDiscover(false)} />
           : tab === "SCH" && selDev ? (selDev.programs && selDev.programs.read ? <Schedules ws={ws} device={selDev} canWrite={canWrite && fullAccess} /> : <div className="muted pad">Reading from this controller is not enabled.</div>)
           : tab === "PID" && selDev ? (selDev.programs && selDev.programs.read ? <PidLoops ws={ws} device={selDev} canWrite={canWrite && fullAccess} /> : <div className="muted pad">Reading from this controller is not enabled.</div>)
+          : tab === "PORT" && selDev ? (selDev.programs && selDev.programs.read ? <Ports ws={ws} device={selDev} canWrite={canWrite && fullAccess} /> : <div className="muted pad">Reading from this controller is not enabled.</div>)
           : tab === "PRG" ? (
           <Programs ws={ws} role={role} onOpenSheet={onOpenSheet} device={(devices || []).find((d) => d.device_id === sel)} />
-        ) : (
+        ) : direct && selDev ? <ControllerPoints ws={ws} instance={selDev.instance} kind={tab} canControl={canWrite && fullAccess} filter={filter} /> : (
           <div className="xp-tablewrap">
             <table className="points xp-table" data-testid="t3-table">
               <thead><tr>
@@ -366,8 +462,10 @@ export default function Explorer({ hass, role, onOpenSheet }) {
                     <td className="small">{["in_alarm", "fault", "overridden", "out_of_service"].filter((k) => p.status_flags[k]).map((k) => k.replace(/_/g, " ")).join(", ") || <span className="muted">—</span>}</td>
                     <td className="mono small muted">{p.entity_id}</td>
                     <td className="nowrap">{canWrite && writable(p) && <button className="btn sm" onClick={() => setWriting(writing === p.entity_id ? null : p.entity_id)} data-testid={`t3-write-${p.category}${p.index}`}>Write</button>}
+                      {canWrite && fullAccess && p.protection !== "locked" && p.category !== "IN" && <button className="btn sm" style={{ marginLeft: 4 }} onClick={() => setControlling(controlling === p.entity_id ? null : p.entity_id)} data-testid={`t3-control-${p.category}${p.index}`}>Control</button>}
                       {canWrite && fullAccess && p.protection !== "locked" && <button className="btn sm" style={{ marginLeft: 4 }} onClick={() => setConfiguring(configuring === p.entity_id ? null : p.entity_id)} data-testid={`t3-config-${p.category}${p.index}`}>Configure</button>}</td>
                   </tr>
+                  {controlling === p.entity_id && <PointControl ws={ws} instance={dev.instance} point={p} onClose={() => setControlling(null)} onDone={() => setTimeout(reload, 1500)} />}
                   {configuring === p.entity_id && <PointConfig ws={ws} instance={dev.instance} point={p} onClose={() => setConfiguring(null)} onDone={() => setTimeout(reload, 1500)} />}
                   {writing === p.entity_id && <PointWrite ws={ws} deviceId={sel} point={p} onClose={() => setWriting(null)} onDone={() => setTimeout(reload, 1500)} />}
                 </React.Fragment>))}
