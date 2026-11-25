@@ -46,10 +46,35 @@ and TEMCO controllers on **BACnet MS/TP** behind a BACnet router are supported.
 
 ## Requirements
 
-- Home Assistant 2026.2 or later.
-- A BACnet/IP integration that exposes the controllers as devices with entities (domain `bacnet`), used for values,
-  writes and discovery. Program and configuration access talks to the controllers directly (T3000 private transfer).
-- Linux x86-64 Home Assistant host for the bundled compiler (`bin/t3000c`, `bin/t3000vm`, static musl builds).
+Check these before installing. The first four are needed for the integration to work; the rest are needed only for the
+features named.
+
+### Required
+
+| What | Why | Notes |
+|---|---|---|
+| **Home Assistant 2026.2 or later** | Minimum version declared to HACS. | Tested on 2026.11. Home Assistant OS, Supervised, Container and Core all work if the network points below are met. |
+| **[BACnet IP integration](https://github.com/CervezaStallone/Home-Assistant-BACnet-integration)** (custom integration, domain `bacnet`, installed from HACS) | Provides the controllers as Home Assistant devices and entities: point values, value writes from the Explorer, the poll heartbeat (`*_last_successful_poll` sensor) and Who-Is discovery. | Tested with version 1.0.56. Add each TEMCO controller in that integration first. The BACnet object name and description are used as the point label and description. |
+| **TEMCO Controls T3 controllers on BACnet/IP** | The panel works only with TEMCO controllers (manufacturer contains "TEMCO"). Programs, point configuration, schedules, PID loops and ports use TEMCO's T3000 private transfer. | Tested on T3-LB and T3-BB. T3-TB, T3-TB-11I and TSTAT10 are recognised for port classification. Controllers on **BACnet MS/TP** need a BACnet/IP-to-MS/TP router (see *MS/TP*). |
+| **Direct UDP/IP access from the Home Assistant host to each controller (port 47808)** | Program, configuration and control commands are sent straight from Home Assistant to the controller, not through the BACnet IP integration. | Same IP network or routed without NAT; no firewall blocking UDP 47808 in either direction. With Home Assistant Container, use host networking (`network_mode: host`). Discovery also needs BACnet broadcasts to reach the network. |
+
+### Needed for some features
+
+| What | Needed for | Without it |
+|---|---|---|
+| **x86-64 (Intel/AMD) Linux host** | The bundled T3000 compiler and interpreter (`bin/t3000c`, `bin/t3000vm`, static 32-bit x86 builds). They compile T3000 sheets, show program listings, edit and compare program code, generate sheets from programs, export programs and send programs to a controller. | On ARM hosts (for example Raspberry Pi) these features report a compiler error. The Explorer (points, Control, Configure), schedules, PID loops, ports, monitoring sheets, history and trends still work. |
+| **Recorder** (Home Assistant default) | Trends in the inspector and point history. | No trend charts. |
+| **Full access** in the configuration (`access: full` per device or `full_access_all_devices: true`) | Writing programs to any slot, controlling physical outputs, point configuration, schedules, PID tuning and port changes. | Restricted mode: program read where enabled, writes only to listed program slots and sandbox points. |
+| **Administrator or listed editor account** | Any change (sheets, programs, points). | Other users can view only. |
+| **A controller RS-485 port in Modbus Master mode**, wired to the Modbus RTU devices with matching baud rate and unique slave IDs | Modbus Read / Modbus Write blocks. | The program loads, but the Modbus points have no data. Set the port in Explorer > Ports. |
+| **Node-RED add-on or server** with `node-red-contrib-home-assistant-websocket` (`nodered_test` setting) | Running monitoring sheets in Node-RED (Deploy to Test). | Monitoring sheets can still run in the browser or continuously inside Home Assistant. |
+| **A modern desktop browser** (Chrome, Edge, Firefox, Safari) | The panel (wire sheet editor and Explorer). | The mobile app works for viewing; editing is designed for a desktop screen. |
+
+### Before the first change on a real controller
+
+- Back up the controller programs (Explorer > Programs > Export, or T3000).
+- Know which points a Home Assistant automation or another BACnet client also writes: they overwrite manual values.
+- Try a change on a test program slot and sandbox points first (`sandbox:` and `program_write_slots:` in restricted mode).
 
 ## Installation
 
