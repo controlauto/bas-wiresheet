@@ -1,5 +1,6 @@
 // Sheet <-> React Flow conversion and client-side helpers. The sheet JSON is the source of truth.
 export const SCHEMA = "bas-wiresheet/1";
+export const nodeTypeOf = (type) => (type === "t3_panel_in" || type === "t3_panel_out" ? "panel" : "bas");
 
 export function resolvePortType(block, port, catalog) {
   const t = port.type;
@@ -24,7 +25,7 @@ export function resolvePortUnit(block, port, hass) {
 }
 
 export function sheetToFlow(sheet) {
-  const nodes = sheet.blocks.map((b) => ({ id: b.id, type: "bas", position: { ...b.position }, data: { block: b } }));
+  const nodes = sheet.blocks.map((b) => ({ id: b.id, type: nodeTypeOf(b.type), position: { ...b.position }, data: { block: b } }));
   const edges = (sheet.wires || []).map((w) => ({
     id: w.id, source: w.from.block, sourceHandle: w.from.port, target: w.to.block, targetHandle: w.to.port, type: "bas",
   }));
@@ -145,6 +146,7 @@ export function controllerValues(sheet, points, ctl, stateMap, expectLogic, now)
 }
 
 export function t3LiveSnapshot(sheet, points, now, RT, ctl = null, stateMap = null, expectLogic = null) {
+  if (RT && RT.expandPanels) sheet = RT.expandPanels(sheet).sheet; // controller faceplates -> T3000 Read / Write
   const byName = Object.fromEntries((points || []).map((p) => [`${p.category}${p.index}`, p]));
   const read = (b) => {
     const name = String((b.params || {}).point || "").toUpperCase();
@@ -203,7 +205,7 @@ export function cloneSelection(nodes, edges, takenNodes, takenEdges, offset = 40
     block.id = id;
     const position = { x: n.position.x + offset, y: n.position.y + offset };
     block.position = position;
-    return { id, type: "bas", position, data: { block }, selected: true };
+    return { id, type: nodeTypeOf(block.type), position, data: { block }, selected: true };
   });
   const wires = edges.filter((e) => map[e.source] && map[e.target]).map((e) => {
     const id = newId("w", takenEdges);

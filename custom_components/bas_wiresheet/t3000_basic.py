@@ -17,6 +17,8 @@ from __future__ import annotations
 import re
 from typing import Any, Callable
 
+from . import panels
+
 POINT_RE = re.compile(r"^(IN|OUT|VAR)([1-9]\d*)$")
 POINT_LIMITS = {"IN": 64, "OUT": 64, "VAR": 128}
 COMPARE_OPS = {">": ">", ">=": ">=", "<": "<", "<=": "<=", "==": "=", "!=": "<>"}
@@ -419,11 +421,14 @@ class _Gen:
 
 def generate(sheet: dict, guard: Guard) -> dict[str, Any]:
     """Return {'source', 'issues', 'reads', 'writes', 'work_vars'}. Source is empty when there are errors."""
+    sheet, origin, pin_issues = panels.expand(sheet)  # controller faceplates -> T3000 Read / Write blocks
     gen = _Gen(sheet, guard)
+    gen.issues.extend(pin_issues)
     if (sheet.get("t3000") or {}).get("imported"):
         gen.err("t3_imported", "This sheet documents an existing controller program and cannot be compiled or loaded")
     else:
         gen.run()
+    panels.map_issues(gen.issues, origin)
     errors = [i for i in gen.issues if i["severity"] == "error"]
     source = ""
     if not errors:

@@ -1,1463 +1,1587 @@
 {
- "schema": "bas-wiresheet/1",
- "port_types": {
-  "number": {
-   "label": "Numeric",
-   "color": "#3fa7ff"
+  "schema": "bas-wiresheet/1",
+  "port_types": {
+    "number": {
+      "label": "Numeric",
+      "color": "#3fa7ff"
+    },
+    "boolean": {
+      "label": "Boolean",
+      "color": "#f5b83d"
+    },
+    "sample": {
+      "label": "Sample",
+      "color": "#b48cff"
+    },
+    "freshness": {
+      "label": "Freshness",
+      "color": "#4fd1a5"
+    },
+    "any": {
+      "label": "Any",
+      "color": "#9aa4b2"
+    }
   },
-  "boolean": {
-   "label": "Boolean",
-   "color": "#f5b83d"
+  "categories": [
+    "Inputs",
+    "Logic",
+    "Math",
+    "Control",
+    "Timers",
+    "Data Quality",
+    "T3000",
+    "Modbus",
+    "Alarms",
+    "Displays"
+  ],
+  "blocks": {
+    "entity_input": {
+      "label": "Entity Input",
+      "category": "Inputs",
+      "description": "Reads one Home Assistant entity. Outputs its value and the raw sample with timestamps.",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "value",
+          "label": "Value",
+          "type": {
+            "param": "value_type"
+          },
+          "unit": {
+            "param": "unit"
+          }
+        },
+        {
+          "id": "sample",
+          "label": "Sample",
+          "type": "sample"
+        }
+      ],
+      "params": [
+        {
+          "id": "entity_id",
+          "label": "Entity",
+          "kind": "entity",
+          "required": true
+        },
+        {
+          "id": "value_type",
+          "label": "Value Type",
+          "kind": "enum",
+          "options": [
+            "number",
+            "boolean"
+          ],
+          "default": "number"
+        },
+        {
+          "id": "unit",
+          "label": "Unit",
+          "kind": "string",
+          "default": ""
+        },
+        {
+          "id": "valid_min",
+          "label": "Valid Min",
+          "kind": "number",
+          "default": null
+        },
+        {
+          "id": "valid_max",
+          "label": "Valid Max",
+          "kind": "number",
+          "default": null
+        },
+        {
+          "id": "equipment",
+          "label": "Equipment",
+          "kind": "string",
+          "default": ""
+        },
+        {
+          "id": "sample_evidence",
+          "label": "Sample Evidence",
+          "kind": "enum",
+          "options": [
+            "changes_only",
+            "reports_every_sample",
+            "value_changes_each_sample"
+          ],
+          "default": "changes_only",
+          "help": "How the source integration writes states. changes_only: unchanged samples are not written, so new-sample arrival cannot be proven once the value is steady. reports_every_sample: every sample is written (last_reported advances even if unchanged). value_changes_each_sample: the value itself changes on every sample (e.g. a countdown)."
+        },
+        {
+          "id": "rest_values",
+          "label": "Rest Values",
+          "kind": "list",
+          "default": [],
+          "help": "Only for value_changes_each_sample: values at which the source can legitimately stop changing."
+        }
+      ]
+    },
+    "constant": {
+      "label": "Constant",
+      "category": "Inputs",
+      "description": "A fixed numeric or boolean value.",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "value",
+          "label": "Value",
+          "type": {
+            "param": "value_type"
+          },
+          "unit": {
+            "param": "unit"
+          }
+        }
+      ],
+      "params": [
+        {
+          "id": "value_type",
+          "label": "Value Type",
+          "kind": "enum",
+          "options": [
+            "number",
+            "boolean"
+          ],
+          "default": "number"
+        },
+        {
+          "id": "value",
+          "label": "Value",
+          "kind": "value",
+          "required": true,
+          "default": 0
+        },
+        {
+          "id": "unit",
+          "label": "Unit",
+          "kind": "string",
+          "default": ""
+        }
+      ]
+    },
+    "compare": {
+      "label": "Compare",
+      "category": "Logic",
+      "description": "Compares A with B. Both inputs must use the same unit.",
+      "inputs": [
+        {
+          "id": "a",
+          "label": "A",
+          "type": "number",
+          "required": true
+        },
+        {
+          "id": "b",
+          "label": "B",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Out",
+          "type": "boolean"
+        }
+      ],
+      "params": [
+        {
+          "id": "op",
+          "label": "Operator",
+          "kind": "enum",
+          "options": [
+            ">",
+            ">=",
+            "<",
+            "<=",
+            "==",
+            "!="
+          ],
+          "default": ">"
+        }
+      ]
+    },
+    "and": {
+      "label": "AND",
+      "category": "Logic",
+      "description": "True when all connected inputs are true.",
+      "inputs": [
+        {
+          "id": "a",
+          "label": "A",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "id": "b",
+          "label": "B",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "id": "c",
+          "label": "C",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "id": "d",
+          "label": "D",
+          "type": "boolean",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Out",
+          "type": "boolean"
+        }
+      ],
+      "params": []
+    },
+    "or": {
+      "label": "OR",
+      "category": "Logic",
+      "description": "True when any connected input is true.",
+      "inputs": [
+        {
+          "id": "a",
+          "label": "A",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "id": "b",
+          "label": "B",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "id": "c",
+          "label": "C",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "id": "d",
+          "label": "D",
+          "type": "boolean",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Out",
+          "type": "boolean"
+        }
+      ],
+      "params": []
+    },
+    "not": {
+      "label": "NOT",
+      "category": "Logic",
+      "description": "Inverts a boolean.",
+      "inputs": [
+        {
+          "id": "in",
+          "label": "In",
+          "type": "boolean",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Out",
+          "type": "boolean"
+        }
+      ],
+      "params": []
+    },
+    "on_delay": {
+      "label": "On Delay",
+      "category": "Timers",
+      "description": "Output turns true after the input has been true continuously for the delay. Resets when the input is false or invalid.",
+      "inputs": [
+        {
+          "id": "in",
+          "label": "In",
+          "type": "boolean",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Out",
+          "type": "boolean"
+        }
+      ],
+      "params": [
+        {
+          "id": "delay_s",
+          "label": "Delay",
+          "kind": "number",
+          "unit": "s",
+          "required": true,
+          "default": 60,
+          "min": 1,
+          "max": 86400
+        }
+      ]
+    },
+    "off_delay": {
+      "label": "Off Delay",
+      "category": "Timers",
+      "description": "Output follows a true input and stays true for the delay after the input turns false. Resets when the input is invalid.",
+      "inputs": [
+        {
+          "id": "in",
+          "label": "In",
+          "type": "boolean",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Out",
+          "type": "boolean"
+        }
+      ],
+      "params": [
+        {
+          "id": "delay_s",
+          "label": "Delay",
+          "kind": "number",
+          "unit": "s",
+          "required": true,
+          "default": 60,
+          "min": 1,
+          "max": 86400
+        }
+      ]
+    },
+    "data_freshness": {
+      "label": "Data Freshness",
+      "category": "Data Quality",
+      "description": "Classifies a point as Fresh, Stale, Unavailable or Freshness Unknown from the arrival time of new samples (last_reported). Never uses the value-change time.",
+      "inputs": [
+        {
+          "id": "sample",
+          "label": "Sample",
+          "type": "sample",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "status",
+          "label": "Status",
+          "type": "freshness"
+        },
+        {
+          "id": "fresh",
+          "label": "Fresh",
+          "type": "boolean"
+        }
+      ],
+      "params": [
+        {
+          "id": "stale_after_s",
+          "label": "Stale After",
+          "kind": "number",
+          "unit": "s",
+          "required": true,
+          "default": 60,
+          "min": 1,
+          "max": 86400
+        },
+        {
+          "id": "justification",
+          "label": "Threshold Basis",
+          "kind": "text",
+          "required": true,
+          "default": ""
+        }
+      ]
+    },
+    "status_display": {
+      "label": "Status Display",
+      "category": "Displays",
+      "description": "Shows a value or status on the sheet. Monitoring only; drives nothing.",
+      "inputs": [
+        {
+          "id": "in",
+          "label": "In",
+          "type": "any",
+          "required": true
+        }
+      ],
+      "outputs": [],
+      "params": [
+        {
+          "id": "label",
+          "label": "Label",
+          "kind": "string",
+          "required": true,
+          "default": "Status"
+        }
+      ]
+    },
+    "t3_read": {
+      "label": "T3000 Read",
+      "category": "T3000",
+      "description": "Reads a controller point (IN, OUT or VAR). T3000 program sheets only.",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "value",
+          "label": "Value",
+          "type": {
+            "param": "value_type"
+          },
+          "unit": {
+            "param": "unit"
+          }
+        }
+      ],
+      "params": [
+        {
+          "id": "point",
+          "label": "Point",
+          "kind": "string",
+          "required": true,
+          "default": ""
+        },
+        {
+          "id": "value_type",
+          "label": "Value Type",
+          "kind": "enum",
+          "options": [
+            "number",
+            "boolean"
+          ],
+          "default": "number"
+        },
+        {
+          "id": "unit",
+          "label": "Unit",
+          "kind": "string",
+          "default": ""
+        }
+      ]
+    },
+    "t3_write": {
+      "label": "T3000 Write",
+      "category": "T3000",
+      "description": "Writes a sandbox point on the controller (virtual VAR or OUT only). T3000 program sheets only.",
+      "inputs": [
+        {
+          "id": "in",
+          "label": "In",
+          "type": {
+            "param": "value_type"
+          },
+          "required": true
+        }
+      ],
+      "outputs": [],
+      "params": [
+        {
+          "id": "point",
+          "label": "Point",
+          "kind": "string",
+          "required": true,
+          "default": ""
+        },
+        {
+          "id": "value_type",
+          "label": "Value Type",
+          "kind": "enum",
+          "options": [
+            "number",
+            "boolean"
+          ],
+          "default": "number"
+        }
+      ]
+    },
+    "t3_panel_in": {
+      "label": "Controller Inputs",
+      "category": "T3000",
+      "description": "Faceplate of the controller's physical inputs (IN1 to the model's last input) with labels and live values. A wire from a terminal reads that input. T3000 program sheets only.",
+      "inputs": [],
+      "outputs": [],
+      "params": [
+        {
+          "id": "model",
+          "label": "Controller Model",
+          "kind": "enum",
+          "options": [
+            "Auto",
+            "T3-BB",
+            "T3-LB",
+            "T3-TB",
+            "T3-TB-11I",
+            "TSTAT10"
+          ],
+          "default": "Auto"
+        },
+        {
+          "id": "show",
+          "label": "Terminals",
+          "kind": "enum",
+          "options": [
+            "All",
+            "Wired only"
+          ],
+          "default": "All"
+        }
+      ]
+    },
+    "t3_panel_out": {
+      "label": "Controller Outputs",
+      "category": "T3000",
+      "description": "Faceplate of the controller's physical outputs (digital then analog), its ports and status lights. A wire into a terminal writes that output. T3000 program sheets only.",
+      "inputs": [],
+      "outputs": [],
+      "params": [
+        {
+          "id": "model",
+          "label": "Controller Model",
+          "kind": "enum",
+          "options": [
+            "Auto",
+            "T3-BB",
+            "T3-LB",
+            "T3-TB",
+            "T3-TB-11I",
+            "TSTAT10"
+          ],
+          "default": "Auto"
+        },
+        {
+          "id": "show",
+          "label": "Terminals",
+          "kind": "enum",
+          "options": [
+            "All",
+            "Wired only"
+          ],
+          "default": "All"
+        }
+      ]
+    },
+    "add": {
+      "label": "Add",
+      "category": "Math",
+      "description": "A + B",
+      "inputs": [
+        {
+          "id": "a",
+          "label": "A",
+          "type": "number",
+          "required": true
+        },
+        {
+          "id": "b",
+          "label": "B",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Out",
+          "type": "number"
+        }
+      ],
+      "params": []
+    },
+    "subtract": {
+      "label": "Subtract",
+      "category": "Math",
+      "description": "A - B",
+      "inputs": [
+        {
+          "id": "a",
+          "label": "A",
+          "type": "number",
+          "required": true
+        },
+        {
+          "id": "b",
+          "label": "B",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Out",
+          "type": "number"
+        }
+      ],
+      "params": []
+    },
+    "multiply": {
+      "label": "Multiply",
+      "category": "Math",
+      "description": "A x B",
+      "inputs": [
+        {
+          "id": "a",
+          "label": "A",
+          "type": "number",
+          "required": true
+        },
+        {
+          "id": "b",
+          "label": "B",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Out",
+          "type": "number"
+        }
+      ],
+      "params": []
+    },
+    "divide": {
+      "label": "Divide",
+      "category": "Math",
+      "description": "A / B. Invalid in monitoring when B is 0; on a T3000 controller the last value is held.",
+      "inputs": [
+        {
+          "id": "a",
+          "label": "A",
+          "type": "number",
+          "required": true
+        },
+        {
+          "id": "b",
+          "label": "B",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Out",
+          "type": "number"
+        }
+      ],
+      "params": []
+    },
+    "minimum": {
+      "label": "Minimum",
+      "category": "Math",
+      "description": "Lower of A and B",
+      "inputs": [
+        {
+          "id": "a",
+          "label": "A",
+          "type": "number",
+          "required": true
+        },
+        {
+          "id": "b",
+          "label": "B",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Out",
+          "type": "number"
+        }
+      ],
+      "params": []
+    },
+    "maximum": {
+      "label": "Maximum",
+      "category": "Math",
+      "description": "Higher of A and B",
+      "inputs": [
+        {
+          "id": "a",
+          "label": "A",
+          "type": "number",
+          "required": true
+        },
+        {
+          "id": "b",
+          "label": "B",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Out",
+          "type": "number"
+        }
+      ],
+      "params": []
+    },
+    "absolute": {
+      "label": "Absolute",
+      "category": "Math",
+      "description": "Absolute value of the input.",
+      "inputs": [
+        {
+          "id": "in",
+          "label": "In",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Out",
+          "type": "number"
+        }
+      ],
+      "params": []
+    },
+    "limit": {
+      "label": "Limit",
+      "category": "Control",
+      "description": "Clamps the input between Low and High.",
+      "inputs": [
+        {
+          "id": "in",
+          "label": "In",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Out",
+          "type": "number"
+        }
+      ],
+      "params": [
+        {
+          "id": "low",
+          "label": "Low",
+          "kind": "number",
+          "required": true,
+          "default": 0
+        },
+        {
+          "id": "high",
+          "label": "High",
+          "kind": "number",
+          "required": true,
+          "default": 100
+        }
+      ]
+    },
+    "scale": {
+      "label": "Scale",
+      "category": "Control",
+      "description": "Linear scaling from the input range to the output range.",
+      "inputs": [
+        {
+          "id": "in",
+          "label": "In",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Out",
+          "type": "number"
+        }
+      ],
+      "params": [
+        {
+          "id": "in_low",
+          "label": "Input Low",
+          "kind": "number",
+          "required": true,
+          "default": 0
+        },
+        {
+          "id": "in_high",
+          "label": "Input High",
+          "kind": "number",
+          "required": true,
+          "default": 10
+        },
+        {
+          "id": "out_low",
+          "label": "Output Low",
+          "kind": "number",
+          "required": true,
+          "default": 0
+        },
+        {
+          "id": "out_high",
+          "label": "Output High",
+          "kind": "number",
+          "required": true,
+          "default": 100
+        },
+        {
+          "id": "clamp",
+          "label": "Clamp to Output Range",
+          "kind": "enum",
+          "options": [
+            "yes",
+            "no"
+          ],
+          "default": "yes"
+        }
+      ]
+    },
+    "hysteresis": {
+      "label": "Hysteresis",
+      "category": "Control",
+      "description": "Turns on at or above On Above, off at or below Off Below, and holds between them.",
+      "inputs": [
+        {
+          "id": "in",
+          "label": "In",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Out",
+          "type": "boolean"
+        }
+      ],
+      "params": [
+        {
+          "id": "on_above",
+          "label": "On Above",
+          "kind": "number",
+          "required": true,
+          "default": 60
+        },
+        {
+          "id": "off_below",
+          "label": "Off Below",
+          "kind": "number",
+          "required": true,
+          "default": 50
+        }
+      ]
+    },
+    "select": {
+      "label": "Select",
+      "category": "Control",
+      "description": "Outputs True Value when Select is true, otherwise False Value.",
+      "inputs": [
+        {
+          "id": "s",
+          "label": "Select",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "id": "a",
+          "label": "True Value",
+          "type": "number",
+          "required": true
+        },
+        {
+          "id": "b",
+          "label": "False Value",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Out",
+          "type": "number"
+        }
+      ],
+      "params": []
+    },
+    "pi": {
+      "label": "PI Loop",
+      "category": "Control",
+      "description": "PI controller with anti-windup. Reverse action is for heating (output rises when PV is below SP). When Enable is false the output goes to Output Min and the integral resets.",
+      "inputs": [
+        {
+          "id": "pv",
+          "label": "PV",
+          "type": "number",
+          "required": true
+        },
+        {
+          "id": "sp",
+          "label": "SP",
+          "type": "number",
+          "required": true
+        },
+        {
+          "id": "en",
+          "label": "Enable",
+          "type": "boolean"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Out",
+          "type": "number"
+        }
+      ],
+      "params": [
+        {
+          "id": "kp",
+          "label": "Kp",
+          "kind": "number",
+          "required": true,
+          "default": 2,
+          "min": 0
+        },
+        {
+          "id": "ki",
+          "label": "Ki",
+          "kind": "number",
+          "unit": "per s",
+          "required": true,
+          "default": 0.02,
+          "min": 0
+        },
+        {
+          "id": "out_min",
+          "label": "Output Min",
+          "kind": "number",
+          "required": true,
+          "default": 0
+        },
+        {
+          "id": "out_max",
+          "label": "Output Max",
+          "kind": "number",
+          "required": true,
+          "default": 100
+        },
+        {
+          "id": "action",
+          "label": "Action",
+          "kind": "enum",
+          "options": [
+            "reverse",
+            "direct"
+          ],
+          "default": "reverse"
+        }
+      ]
+    },
+    "cb_unmapped": {
+      "label": "Unmapped Code",
+      "category": "T3000",
+      "description": "A program line that could not be represented exactly as blocks. It is shown for reference and does not run.",
+      "inputs": [],
+      "outputs": [],
+      "params": [
+        {
+          "id": "code",
+          "label": "Control Basic",
+          "kind": "text",
+          "default": ""
+        }
+      ]
+    },
+    "cb_local_read": {
+      "label": "Local Variable",
+      "category": "T3000",
+      "description": "A named local variable of a T3000 program, as it was at the start of the scan.",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "value",
+          "label": "Value",
+          "type": "number"
+        }
+      ],
+      "params": [
+        {
+          "id": "name",
+          "label": "Name",
+          "kind": "string",
+          "required": true,
+          "default": ""
+        },
+        {
+          "id": "initial",
+          "label": "Stored Value",
+          "kind": "number",
+          "default": 0
+        }
+      ]
+    },
+    "cb_local_write": {
+      "label": "Local Variable Set",
+      "category": "T3000",
+      "description": "The value a T3000 program leaves in a named local variable at the end of the scan.",
+      "inputs": [
+        {
+          "id": "in",
+          "label": "In",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "outputs": [],
+      "params": [
+        {
+          "id": "name",
+          "label": "Name",
+          "kind": "string",
+          "required": true,
+          "default": ""
+        }
+      ]
+    },
+    "xor": {
+      "label": "XOR",
+      "category": "Logic",
+      "description": "True when exactly one of A and B is true.",
+      "inputs": [
+        {
+          "id": "a",
+          "label": "A",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "id": "b",
+          "label": "B",
+          "type": "boolean",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Out",
+          "type": "boolean"
+        }
+      ],
+      "params": []
+    },
+    "latch": {
+      "label": "SR Latch",
+      "category": "Logic",
+      "description": "Set turns the output on and it stays on until Reset. Reset wins when both are true. Resets when an input is not valid.",
+      "inputs": [
+        {
+          "id": "set",
+          "label": "Set",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "id": "reset",
+          "label": "Reset",
+          "type": "boolean",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Out",
+          "type": "boolean"
+        }
+      ],
+      "params": []
+    },
+    "edge": {
+      "label": "Edge Pulse",
+      "category": "Logic",
+      "description": "Outputs a pulse of the given length when the input changes (rising, falling or both).",
+      "inputs": [
+        {
+          "id": "in",
+          "label": "In",
+          "type": "boolean",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Pulse",
+          "type": "boolean"
+        }
+      ],
+      "params": [
+        {
+          "id": "edge",
+          "label": "Edge",
+          "kind": "enum",
+          "options": [
+            "rising",
+            "falling",
+            "both"
+          ],
+          "required": true,
+          "default": "rising"
+        },
+        {
+          "id": "pulse_s",
+          "label": "Pulse Length",
+          "kind": "number",
+          "required": true,
+          "default": 5,
+          "unit": "s",
+          "min": 1,
+          "max": 86400
+        }
+      ]
+    },
+    "counter": {
+      "label": "Counter",
+      "category": "Math",
+      "description": "Counts rising edges of the input. Reset (optional) sets the count to 0.",
+      "inputs": [
+        {
+          "id": "in",
+          "label": "Count",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "id": "reset",
+          "label": "Reset",
+          "type": "boolean",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Count",
+          "type": "number"
+        }
+      ],
+      "params": []
+    },
+    "average": {
+      "label": "Moving Average",
+      "category": "Math",
+      "description": "Average of the good input values seen during the last window.",
+      "inputs": [
+        {
+          "id": "in",
+          "label": "In",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Average",
+          "type": "number"
+        }
+      ],
+      "params": [
+        {
+          "id": "window_s",
+          "label": "Window",
+          "kind": "number",
+          "required": true,
+          "default": 300,
+          "unit": "s",
+          "min": 1,
+          "max": 86400
+        }
+      ]
+    },
+    "rate": {
+      "label": "Rate of Change",
+      "category": "Math",
+      "description": "Change of the input per minute, measured over the window.",
+      "inputs": [
+        {
+          "id": "in",
+          "label": "In",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Per Minute",
+          "type": "number"
+        }
+      ],
+      "params": [
+        {
+          "id": "window_s",
+          "label": "Window",
+          "kind": "number",
+          "required": true,
+          "default": 60,
+          "unit": "s",
+          "min": 2,
+          "max": 86400
+        }
+      ]
+    },
+    "ramp": {
+      "label": "Rate Limit",
+      "category": "Control",
+      "description": "Follows the input but moves no faster than the rate (units per minute). Starts at the first good value.",
+      "inputs": [
+        {
+          "id": "in",
+          "label": "In",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Out",
+          "type": "number"
+        }
+      ],
+      "params": [
+        {
+          "id": "rate_per_min",
+          "label": "Max Rate",
+          "kind": "number",
+          "required": true,
+          "default": 1,
+          "unit": "/min",
+          "min": 0.001,
+          "max": 1000000
+        }
+      ]
+    },
+    "range_check": {
+      "label": "Range Check",
+      "category": "Alarms",
+      "description": "Out of Range is true when the input is below Low or above High. In Range is the opposite.",
+      "inputs": [
+        {
+          "id": "in",
+          "label": "In",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Out of Range",
+          "type": "boolean"
+        },
+        {
+          "id": "ok",
+          "label": "In Range",
+          "type": "boolean"
+        }
+      ],
+      "params": [
+        {
+          "id": "low",
+          "label": "Low",
+          "kind": "number",
+          "required": true,
+          "default": 0
+        },
+        {
+          "id": "high",
+          "label": "High",
+          "kind": "number",
+          "required": true,
+          "default": 100
+        }
+      ]
+    },
+    "alarm": {
+      "label": "Alarm",
+      "category": "Alarms",
+      "description": "Raises an alarm when the condition stays true for the delay. Shown on the sheet; a sheet running in Home Assistant notifies. Monitoring only; drives nothing.",
+      "inputs": [
+        {
+          "id": "in",
+          "label": "Condition",
+          "type": "boolean",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out",
+          "label": "Active",
+          "type": "boolean"
+        }
+      ],
+      "params": [
+        {
+          "id": "label",
+          "label": "Alarm Text",
+          "kind": "string",
+          "required": true,
+          "default": "Alarm"
+        },
+        {
+          "id": "severity",
+          "label": "Severity",
+          "kind": "enum",
+          "options": [
+            "warning",
+            "serious",
+            "critical"
+          ],
+          "required": true,
+          "default": "warning"
+        },
+        {
+          "id": "delay_s",
+          "label": "Delay",
+          "kind": "number",
+          "required": true,
+          "default": 0,
+          "unit": "s",
+          "min": 0,
+          "max": 86400
+        }
+      ]
+    },
+    "modbus_read": {
+      "label": "Modbus Read",
+      "category": "Modbus",
+      "description": "Reads a register or coil of any Modbus RTU device on the controller's RS-485 port (port set to Modbus Master). T3000 program sheets only.",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "value",
+          "label": "Value",
+          "type": {
+            "param": "value_type"
+          },
+          "unit": {
+            "param": "unit"
+          }
+        }
+      ],
+      "params": [
+        {
+          "id": "slave",
+          "label": "Slave ID",
+          "kind": "number",
+          "required": true,
+          "default": 1,
+          "min": 1,
+          "max": 254
+        },
+        {
+          "id": "register_type",
+          "label": "Register Type",
+          "kind": "enum",
+          "options": [
+            "holding",
+            "input_register",
+            "coil",
+            "discrete_input",
+            "holding_float_abcd",
+            "holding_float_cdab",
+            "holding_float_badc",
+            "holding_float_dcba",
+            "input_float_abcd",
+            "input_float_cdab",
+            "input_float_badc",
+            "input_float_dcba"
+          ],
+          "default": "holding"
+        },
+        {
+          "id": "address",
+          "label": "Register",
+          "kind": "number",
+          "required": true,
+          "default": 0,
+          "min": 0,
+          "max": 65535
+        },
+        {
+          "id": "scale",
+          "label": "Scale (x)",
+          "kind": "number",
+          "default": 1
+        },
+        {
+          "id": "value_type",
+          "label": "Value Type",
+          "kind": "enum",
+          "options": [
+            "number",
+            "boolean"
+          ],
+          "default": "number"
+        },
+        {
+          "id": "unit",
+          "label": "Unit",
+          "kind": "string",
+          "default": ""
+        }
+      ]
+    },
+    "modbus_write": {
+      "label": "Modbus Write",
+      "category": "Modbus",
+      "description": "Writes a holding register or coil of any Modbus RTU device on the controller's RS-485 port (port set to Modbus Master). T3000 program sheets only.",
+      "inputs": [
+        {
+          "id": "in",
+          "label": "In",
+          "type": {
+            "param": "value_type"
+          },
+          "required": true
+        }
+      ],
+      "outputs": [],
+      "params": [
+        {
+          "id": "slave",
+          "label": "Slave ID",
+          "kind": "number",
+          "required": true,
+          "default": 1,
+          "min": 1,
+          "max": 254
+        },
+        {
+          "id": "register_type",
+          "label": "Register Type",
+          "kind": "enum",
+          "options": [
+            "holding",
+            "coil",
+            "holding_float_abcd",
+            "holding_float_cdab",
+            "holding_float_badc",
+            "holding_float_dcba"
+          ],
+          "default": "holding"
+        },
+        {
+          "id": "address",
+          "label": "Register",
+          "kind": "number",
+          "required": true,
+          "default": 0,
+          "min": 0,
+          "max": 65535
+        },
+        {
+          "id": "scale",
+          "label": "Scale (x)",
+          "kind": "number",
+          "default": 1
+        },
+        {
+          "id": "value_type",
+          "label": "Value Type",
+          "kind": "enum",
+          "options": [
+            "number",
+            "boolean"
+          ],
+          "default": "number"
+        }
+      ]
+    }
   },
-  "sample": {
-   "label": "Sample",
-   "color": "#b48cff"
-  },
-  "freshness": {
-   "label": "Freshness",
-   "color": "#4fd1a5"
-  },
-  "any": {
-   "label": "Any",
-   "color": "#9aa4b2"
+  "t3_models": {
+    "T3-BB": {
+      "inputs": 32,
+      "out_digital": [
+        1,
+        12
+      ],
+      "out_analog": [
+        13,
+        24
+      ]
+    },
+    "T3-LB": {
+      "inputs": 16,
+      "out_digital": [
+        1,
+        6
+      ],
+      "out_analog": [
+        7,
+        10
+      ]
+    },
+    "T3-TB": {
+      "inputs": 8,
+      "out_digital": [
+        1,
+        8
+      ],
+      "out_analog": [
+        9,
+        14
+      ]
+    },
+    "T3-TB-11I": {
+      "inputs": 11,
+      "out_digital": [
+        1,
+        6
+      ],
+      "out_analog": [
+        7,
+        11
+      ]
+    },
+    "TSTAT10": {
+      "inputs": 8,
+      "out_digital": [
+        1,
+        5
+      ],
+      "out_analog": [
+        6,
+        7
+      ],
+      "note": "Inputs: 8 assumed (model input count not in the product IO table)"
+    }
   }
- },
- "categories": [
-  "Inputs",
-  "Logic",
-  "Math",
-  "Control",
-  "Timers",
-  "Data Quality",
-  "T3000",
-  "Modbus",
-  "Alarms",
-  "Displays"
- ],
- "blocks": {
-  "entity_input": {
-   "label": "Entity Input",
-   "category": "Inputs",
-   "description": "Reads one Home Assistant entity. Outputs its value and the raw sample with timestamps.",
-   "inputs": [],
-   "outputs": [
-    {
-     "id": "value",
-     "label": "Value",
-     "type": {
-      "param": "value_type"
-     },
-     "unit": {
-      "param": "unit"
-     }
-    },
-    {
-     "id": "sample",
-     "label": "Sample",
-     "type": "sample"
-    }
-   ],
-   "params": [
-    {
-     "id": "entity_id",
-     "label": "Entity",
-     "kind": "entity",
-     "required": true
-    },
-    {
-     "id": "value_type",
-     "label": "Value Type",
-     "kind": "enum",
-     "options": [
-      "number",
-      "boolean"
-     ],
-     "default": "number"
-    },
-    {
-     "id": "unit",
-     "label": "Unit",
-     "kind": "string",
-     "default": ""
-    },
-    {
-     "id": "valid_min",
-     "label": "Valid Min",
-     "kind": "number",
-     "default": null
-    },
-    {
-     "id": "valid_max",
-     "label": "Valid Max",
-     "kind": "number",
-     "default": null
-    },
-    {
-     "id": "equipment",
-     "label": "Equipment",
-     "kind": "string",
-     "default": ""
-    },
-    {
-     "id": "sample_evidence",
-     "label": "Sample Evidence",
-     "kind": "enum",
-     "options": [
-      "changes_only",
-      "reports_every_sample",
-      "value_changes_each_sample"
-     ],
-     "default": "changes_only",
-     "help": "How the source integration writes states. changes_only: unchanged samples are not written, so new-sample arrival cannot be proven once the value is steady. reports_every_sample: every sample is written (last_reported advances even if unchanged). value_changes_each_sample: the value itself changes on every sample (e.g. a countdown)."
-    },
-    {
-     "id": "rest_values",
-     "label": "Rest Values",
-     "kind": "list",
-     "default": [],
-     "help": "Only for value_changes_each_sample: values at which the source can legitimately stop changing."
-    }
-   ]
-  },
-  "constant": {
-   "label": "Constant",
-   "category": "Inputs",
-   "description": "A fixed numeric or boolean value.",
-   "inputs": [],
-   "outputs": [
-    {
-     "id": "value",
-     "label": "Value",
-     "type": {
-      "param": "value_type"
-     },
-     "unit": {
-      "param": "unit"
-     }
-    }
-   ],
-   "params": [
-    {
-     "id": "value_type",
-     "label": "Value Type",
-     "kind": "enum",
-     "options": [
-      "number",
-      "boolean"
-     ],
-     "default": "number"
-    },
-    {
-     "id": "value",
-     "label": "Value",
-     "kind": "value",
-     "required": true,
-     "default": 0
-    },
-    {
-     "id": "unit",
-     "label": "Unit",
-     "kind": "string",
-     "default": ""
-    }
-   ]
-  },
-  "compare": {
-   "label": "Compare",
-   "category": "Logic",
-   "description": "Compares A with B. Both inputs must use the same unit.",
-   "inputs": [
-    {
-     "id": "a",
-     "label": "A",
-     "type": "number",
-     "required": true
-    },
-    {
-     "id": "b",
-     "label": "B",
-     "type": "number",
-     "required": true
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Out",
-     "type": "boolean"
-    }
-   ],
-   "params": [
-    {
-     "id": "op",
-     "label": "Operator",
-     "kind": "enum",
-     "options": [
-      ">",
-      ">=",
-      "<",
-      "<=",
-      "==",
-      "!="
-     ],
-     "default": ">"
-    }
-   ]
-  },
-  "and": {
-   "label": "AND",
-   "category": "Logic",
-   "description": "True when all connected inputs are true.",
-   "inputs": [
-    {
-     "id": "a",
-     "label": "A",
-     "type": "boolean",
-     "required": true
-    },
-    {
-     "id": "b",
-     "label": "B",
-     "type": "boolean",
-     "required": true
-    },
-    {
-     "id": "c",
-     "label": "C",
-     "type": "boolean",
-     "required": false
-    },
-    {
-     "id": "d",
-     "label": "D",
-     "type": "boolean",
-     "required": false
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Out",
-     "type": "boolean"
-    }
-   ],
-   "params": []
-  },
-  "or": {
-   "label": "OR",
-   "category": "Logic",
-   "description": "True when any connected input is true.",
-   "inputs": [
-    {
-     "id": "a",
-     "label": "A",
-     "type": "boolean",
-     "required": true
-    },
-    {
-     "id": "b",
-     "label": "B",
-     "type": "boolean",
-     "required": true
-    },
-    {
-     "id": "c",
-     "label": "C",
-     "type": "boolean",
-     "required": false
-    },
-    {
-     "id": "d",
-     "label": "D",
-     "type": "boolean",
-     "required": false
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Out",
-     "type": "boolean"
-    }
-   ],
-   "params": []
-  },
-  "not": {
-   "label": "NOT",
-   "category": "Logic",
-   "description": "Inverts a boolean.",
-   "inputs": [
-    {
-     "id": "in",
-     "label": "In",
-     "type": "boolean",
-     "required": true
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Out",
-     "type": "boolean"
-    }
-   ],
-   "params": []
-  },
-  "on_delay": {
-   "label": "On Delay",
-   "category": "Timers",
-   "description": "Output turns true after the input has been true continuously for the delay. Resets when the input is false or invalid.",
-   "inputs": [
-    {
-     "id": "in",
-     "label": "In",
-     "type": "boolean",
-     "required": true
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Out",
-     "type": "boolean"
-    }
-   ],
-   "params": [
-    {
-     "id": "delay_s",
-     "label": "Delay",
-     "kind": "number",
-     "unit": "s",
-     "required": true,
-     "default": 60,
-     "min": 1,
-     "max": 86400
-    }
-   ]
-  },
-  "off_delay": {
-   "label": "Off Delay",
-   "category": "Timers",
-   "description": "Output follows a true input and stays true for the delay after the input turns false. Resets when the input is invalid.",
-   "inputs": [
-    {
-     "id": "in",
-     "label": "In",
-     "type": "boolean",
-     "required": true
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Out",
-     "type": "boolean"
-    }
-   ],
-   "params": [
-    {
-     "id": "delay_s",
-     "label": "Delay",
-     "kind": "number",
-     "unit": "s",
-     "required": true,
-     "default": 60,
-     "min": 1,
-     "max": 86400
-    }
-   ]
-  },
-  "data_freshness": {
-   "label": "Data Freshness",
-   "category": "Data Quality",
-   "description": "Classifies a point as Fresh, Stale, Unavailable or Freshness Unknown from the arrival time of new samples (last_reported). Never uses the value-change time.",
-   "inputs": [
-    {
-     "id": "sample",
-     "label": "Sample",
-     "type": "sample",
-     "required": true
-    }
-   ],
-   "outputs": [
-    {
-     "id": "status",
-     "label": "Status",
-     "type": "freshness"
-    },
-    {
-     "id": "fresh",
-     "label": "Fresh",
-     "type": "boolean"
-    }
-   ],
-   "params": [
-    {
-     "id": "stale_after_s",
-     "label": "Stale After",
-     "kind": "number",
-     "unit": "s",
-     "required": true,
-     "default": 60,
-     "min": 1,
-     "max": 86400
-    },
-    {
-     "id": "justification",
-     "label": "Threshold Basis",
-     "kind": "text",
-     "required": true,
-     "default": ""
-    }
-   ]
-  },
-  "status_display": {
-   "label": "Status Display",
-   "category": "Displays",
-   "description": "Shows a value or status on the sheet. Monitoring only; drives nothing.",
-   "inputs": [
-    {
-     "id": "in",
-     "label": "In",
-     "type": "any",
-     "required": true
-    }
-   ],
-   "outputs": [],
-   "params": [
-    {
-     "id": "label",
-     "label": "Label",
-     "kind": "string",
-     "required": true,
-     "default": "Status"
-    }
-   ]
-  },
-  "t3_read": {
-   "label": "T3000 Read",
-   "category": "T3000",
-   "description": "Reads a controller point (IN, OUT or VAR). T3000 program sheets only.",
-   "inputs": [],
-   "outputs": [
-    {
-     "id": "value",
-     "label": "Value",
-     "type": {
-      "param": "value_type"
-     },
-     "unit": {
-      "param": "unit"
-     }
-    }
-   ],
-   "params": [
-    {
-     "id": "point",
-     "label": "Point",
-     "kind": "string",
-     "required": true,
-     "default": ""
-    },
-    {
-     "id": "value_type",
-     "label": "Value Type",
-     "kind": "enum",
-     "options": [
-      "number",
-      "boolean"
-     ],
-     "default": "number"
-    },
-    {
-     "id": "unit",
-     "label": "Unit",
-     "kind": "string",
-     "default": ""
-    }
-   ]
-  },
-  "t3_write": {
-   "label": "T3000 Write",
-   "category": "T3000",
-   "description": "Writes a sandbox point on the controller (virtual VAR or OUT only). T3000 program sheets only.",
-   "inputs": [
-    {
-     "id": "in",
-     "label": "In",
-     "type": {
-      "param": "value_type"
-     },
-     "required": true
-    }
-   ],
-   "outputs": [],
-   "params": [
-    {
-     "id": "point",
-     "label": "Point",
-     "kind": "string",
-     "required": true,
-     "default": ""
-    },
-    {
-     "id": "value_type",
-     "label": "Value Type",
-     "kind": "enum",
-     "options": [
-      "number",
-      "boolean"
-     ],
-     "default": "number"
-    }
-   ]
-  },
-  "add": {
-   "label": "Add",
-   "category": "Math",
-   "description": "A + B",
-   "inputs": [
-    {
-     "id": "a",
-     "label": "A",
-     "type": "number",
-     "required": true
-    },
-    {
-     "id": "b",
-     "label": "B",
-     "type": "number",
-     "required": true
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Out",
-     "type": "number"
-    }
-   ],
-   "params": []
-  },
-  "subtract": {
-   "label": "Subtract",
-   "category": "Math",
-   "description": "A - B",
-   "inputs": [
-    {
-     "id": "a",
-     "label": "A",
-     "type": "number",
-     "required": true
-    },
-    {
-     "id": "b",
-     "label": "B",
-     "type": "number",
-     "required": true
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Out",
-     "type": "number"
-    }
-   ],
-   "params": []
-  },
-  "multiply": {
-   "label": "Multiply",
-   "category": "Math",
-   "description": "A x B",
-   "inputs": [
-    {
-     "id": "a",
-     "label": "A",
-     "type": "number",
-     "required": true
-    },
-    {
-     "id": "b",
-     "label": "B",
-     "type": "number",
-     "required": true
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Out",
-     "type": "number"
-    }
-   ],
-   "params": []
-  },
-  "divide": {
-   "label": "Divide",
-   "category": "Math",
-   "description": "A / B. Invalid in monitoring when B is 0; on a T3000 controller the last value is held.",
-   "inputs": [
-    {
-     "id": "a",
-     "label": "A",
-     "type": "number",
-     "required": true
-    },
-    {
-     "id": "b",
-     "label": "B",
-     "type": "number",
-     "required": true
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Out",
-     "type": "number"
-    }
-   ],
-   "params": []
-  },
-  "minimum": {
-   "label": "Minimum",
-   "category": "Math",
-   "description": "Lower of A and B",
-   "inputs": [
-    {
-     "id": "a",
-     "label": "A",
-     "type": "number",
-     "required": true
-    },
-    {
-     "id": "b",
-     "label": "B",
-     "type": "number",
-     "required": true
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Out",
-     "type": "number"
-    }
-   ],
-   "params": []
-  },
-  "maximum": {
-   "label": "Maximum",
-   "category": "Math",
-   "description": "Higher of A and B",
-   "inputs": [
-    {
-     "id": "a",
-     "label": "A",
-     "type": "number",
-     "required": true
-    },
-    {
-     "id": "b",
-     "label": "B",
-     "type": "number",
-     "required": true
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Out",
-     "type": "number"
-    }
-   ],
-   "params": []
-  },
-  "absolute": {
-   "label": "Absolute",
-   "category": "Math",
-   "description": "Absolute value of the input.",
-   "inputs": [
-    {
-     "id": "in",
-     "label": "In",
-     "type": "number",
-     "required": true
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Out",
-     "type": "number"
-    }
-   ],
-   "params": []
-  },
-  "limit": {
-   "label": "Limit",
-   "category": "Control",
-   "description": "Clamps the input between Low and High.",
-   "inputs": [
-    {
-     "id": "in",
-     "label": "In",
-     "type": "number",
-     "required": true
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Out",
-     "type": "number"
-    }
-   ],
-   "params": [
-    {
-     "id": "low",
-     "label": "Low",
-     "kind": "number",
-     "required": true,
-     "default": 0
-    },
-    {
-     "id": "high",
-     "label": "High",
-     "kind": "number",
-     "required": true,
-     "default": 100
-    }
-   ]
-  },
-  "scale": {
-   "label": "Scale",
-   "category": "Control",
-   "description": "Linear scaling from the input range to the output range.",
-   "inputs": [
-    {
-     "id": "in",
-     "label": "In",
-     "type": "number",
-     "required": true
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Out",
-     "type": "number"
-    }
-   ],
-   "params": [
-    {
-     "id": "in_low",
-     "label": "Input Low",
-     "kind": "number",
-     "required": true,
-     "default": 0
-    },
-    {
-     "id": "in_high",
-     "label": "Input High",
-     "kind": "number",
-     "required": true,
-     "default": 10
-    },
-    {
-     "id": "out_low",
-     "label": "Output Low",
-     "kind": "number",
-     "required": true,
-     "default": 0
-    },
-    {
-     "id": "out_high",
-     "label": "Output High",
-     "kind": "number",
-     "required": true,
-     "default": 100
-    },
-    {
-     "id": "clamp",
-     "label": "Clamp to Output Range",
-     "kind": "enum",
-     "options": [
-      "yes",
-      "no"
-     ],
-     "default": "yes"
-    }
-   ]
-  },
-  "hysteresis": {
-   "label": "Hysteresis",
-   "category": "Control",
-   "description": "Turns on at or above On Above, off at or below Off Below, and holds between them.",
-   "inputs": [
-    {
-     "id": "in",
-     "label": "In",
-     "type": "number",
-     "required": true
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Out",
-     "type": "boolean"
-    }
-   ],
-   "params": [
-    {
-     "id": "on_above",
-     "label": "On Above",
-     "kind": "number",
-     "required": true,
-     "default": 60
-    },
-    {
-     "id": "off_below",
-     "label": "Off Below",
-     "kind": "number",
-     "required": true,
-     "default": 50
-    }
-   ]
-  },
-  "select": {
-   "label": "Select",
-   "category": "Control",
-   "description": "Outputs True Value when Select is true, otherwise False Value.",
-   "inputs": [
-    {
-     "id": "s",
-     "label": "Select",
-     "type": "boolean",
-     "required": true
-    },
-    {
-     "id": "a",
-     "label": "True Value",
-     "type": "number",
-     "required": true
-    },
-    {
-     "id": "b",
-     "label": "False Value",
-     "type": "number",
-     "required": true
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Out",
-     "type": "number"
-    }
-   ],
-   "params": []
-  },
-  "pi": {
-   "label": "PI Loop",
-   "category": "Control",
-   "description": "PI controller with anti-windup. Reverse action is for heating (output rises when PV is below SP). When Enable is false the output goes to Output Min and the integral resets.",
-   "inputs": [
-    {
-     "id": "pv",
-     "label": "PV",
-     "type": "number",
-     "required": true
-    },
-    {
-     "id": "sp",
-     "label": "SP",
-     "type": "number",
-     "required": true
-    },
-    {
-     "id": "en",
-     "label": "Enable",
-     "type": "boolean"
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Out",
-     "type": "number"
-    }
-   ],
-   "params": [
-    {
-     "id": "kp",
-     "label": "Kp",
-     "kind": "number",
-     "required": true,
-     "default": 2,
-     "min": 0
-    },
-    {
-     "id": "ki",
-     "label": "Ki",
-     "kind": "number",
-     "unit": "per s",
-     "required": true,
-     "default": 0.02,
-     "min": 0
-    },
-    {
-     "id": "out_min",
-     "label": "Output Min",
-     "kind": "number",
-     "required": true,
-     "default": 0
-    },
-    {
-     "id": "out_max",
-     "label": "Output Max",
-     "kind": "number",
-     "required": true,
-     "default": 100
-    },
-    {
-     "id": "action",
-     "label": "Action",
-     "kind": "enum",
-     "options": [
-      "reverse",
-      "direct"
-     ],
-     "default": "reverse"
-    }
-   ]
-  },
-  "cb_unmapped": {
-   "label": "Unmapped Code",
-   "category": "T3000",
-   "description": "A program line that could not be represented exactly as blocks. It is shown for reference and does not run.",
-   "inputs": [],
-   "outputs": [],
-   "params": [
-    {
-     "id": "code",
-     "label": "Control Basic",
-     "kind": "text",
-     "default": ""
-    }
-   ]
-  },
-  "cb_local_read": {
-   "label": "Local Variable",
-   "category": "T3000",
-   "description": "A named local variable of a T3000 program, as it was at the start of the scan.",
-   "inputs": [],
-   "outputs": [
-    {
-     "id": "value",
-     "label": "Value",
-     "type": "number"
-    }
-   ],
-   "params": [
-    {
-     "id": "name",
-     "label": "Name",
-     "kind": "string",
-     "required": true,
-     "default": ""
-    },
-    {
-     "id": "initial",
-     "label": "Stored Value",
-     "kind": "number",
-     "default": 0
-    }
-   ]
-  },
-  "cb_local_write": {
-   "label": "Local Variable Set",
-   "category": "T3000",
-   "description": "The value a T3000 program leaves in a named local variable at the end of the scan.",
-   "inputs": [
-    {
-     "id": "in",
-     "label": "In",
-     "type": "number",
-     "required": true
-    }
-   ],
-   "outputs": [],
-   "params": [
-    {
-     "id": "name",
-     "label": "Name",
-     "kind": "string",
-     "required": true,
-     "default": ""
-    }
-   ]
-  },
-  "xor": {
-   "label": "XOR",
-   "category": "Logic",
-   "description": "True when exactly one of A and B is true.",
-   "inputs": [
-    {
-     "id": "a",
-     "label": "A",
-     "type": "boolean",
-     "required": true
-    },
-    {
-     "id": "b",
-     "label": "B",
-     "type": "boolean",
-     "required": true
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Out",
-     "type": "boolean"
-    }
-   ],
-   "params": []
-  },
-  "latch": {
-   "label": "SR Latch",
-   "category": "Logic",
-   "description": "Set turns the output on and it stays on until Reset. Reset wins when both are true. Resets when an input is not valid.",
-   "inputs": [
-    {
-     "id": "set",
-     "label": "Set",
-     "type": "boolean",
-     "required": true
-    },
-    {
-     "id": "reset",
-     "label": "Reset",
-     "type": "boolean",
-     "required": true
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Out",
-     "type": "boolean"
-    }
-   ],
-   "params": []
-  },
-  "edge": {
-   "label": "Edge Pulse",
-   "category": "Logic",
-   "description": "Outputs a pulse of the given length when the input changes (rising, falling or both).",
-   "inputs": [
-    {
-     "id": "in",
-     "label": "In",
-     "type": "boolean",
-     "required": true
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Pulse",
-     "type": "boolean"
-    }
-   ],
-   "params": [
-    {
-     "id": "edge",
-     "label": "Edge",
-     "kind": "enum",
-     "options": [
-      "rising",
-      "falling",
-      "both"
-     ],
-     "required": true,
-     "default": "rising"
-    },
-    {
-     "id": "pulse_s",
-     "label": "Pulse Length",
-     "kind": "number",
-     "required": true,
-     "default": 5,
-     "unit": "s",
-     "min": 1,
-     "max": 86400
-    }
-   ]
-  },
-  "counter": {
-   "label": "Counter",
-   "category": "Math",
-   "description": "Counts rising edges of the input. Reset (optional) sets the count to 0.",
-   "inputs": [
-    {
-     "id": "in",
-     "label": "Count",
-     "type": "boolean",
-     "required": true
-    },
-    {
-     "id": "reset",
-     "label": "Reset",
-     "type": "boolean",
-     "required": false
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Count",
-     "type": "number"
-    }
-   ],
-   "params": []
-  },
-  "average": {
-   "label": "Moving Average",
-   "category": "Math",
-   "description": "Average of the good input values seen during the last window.",
-   "inputs": [
-    {
-     "id": "in",
-     "label": "In",
-     "type": "number",
-     "required": true
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Average",
-     "type": "number"
-    }
-   ],
-   "params": [
-    {
-     "id": "window_s",
-     "label": "Window",
-     "kind": "number",
-     "required": true,
-     "default": 300,
-     "unit": "s",
-     "min": 1,
-     "max": 86400
-    }
-   ]
-  },
-  "rate": {
-   "label": "Rate of Change",
-   "category": "Math",
-   "description": "Change of the input per minute, measured over the window.",
-   "inputs": [
-    {
-     "id": "in",
-     "label": "In",
-     "type": "number",
-     "required": true
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Per Minute",
-     "type": "number"
-    }
-   ],
-   "params": [
-    {
-     "id": "window_s",
-     "label": "Window",
-     "kind": "number",
-     "required": true,
-     "default": 60,
-     "unit": "s",
-     "min": 2,
-     "max": 86400
-    }
-   ]
-  },
-  "ramp": {
-   "label": "Rate Limit",
-   "category": "Control",
-   "description": "Follows the input but moves no faster than the rate (units per minute). Starts at the first good value.",
-   "inputs": [
-    {
-     "id": "in",
-     "label": "In",
-     "type": "number",
-     "required": true
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Out",
-     "type": "number"
-    }
-   ],
-   "params": [
-    {
-     "id": "rate_per_min",
-     "label": "Max Rate",
-     "kind": "number",
-     "required": true,
-     "default": 1,
-     "unit": "/min",
-     "min": 0.001,
-     "max": 1000000
-    }
-   ]
-  },
-  "range_check": {
-   "label": "Range Check",
-   "category": "Alarms",
-   "description": "Out of Range is true when the input is below Low or above High. In Range is the opposite.",
-   "inputs": [
-    {
-     "id": "in",
-     "label": "In",
-     "type": "number",
-     "required": true
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Out of Range",
-     "type": "boolean"
-    },
-    {
-     "id": "ok",
-     "label": "In Range",
-     "type": "boolean"
-    }
-   ],
-   "params": [
-    {
-     "id": "low",
-     "label": "Low",
-     "kind": "number",
-     "required": true,
-     "default": 0
-    },
-    {
-     "id": "high",
-     "label": "High",
-     "kind": "number",
-     "required": true,
-     "default": 100
-    }
-   ]
-  },
-  "alarm": {
-   "label": "Alarm",
-   "category": "Alarms",
-   "description": "Raises an alarm when the condition stays true for the delay. Shown on the sheet; a sheet running in Home Assistant notifies. Monitoring only; drives nothing.",
-   "inputs": [
-    {
-     "id": "in",
-     "label": "Condition",
-     "type": "boolean",
-     "required": true
-    }
-   ],
-   "outputs": [
-    {
-     "id": "out",
-     "label": "Active",
-     "type": "boolean"
-    }
-   ],
-   "params": [
-    {
-     "id": "label",
-     "label": "Alarm Text",
-     "kind": "string",
-     "required": true,
-     "default": "Alarm"
-    },
-    {
-     "id": "severity",
-     "label": "Severity",
-     "kind": "enum",
-     "options": [
-      "warning",
-      "serious",
-      "critical"
-     ],
-     "required": true,
-     "default": "warning"
-    },
-    {
-     "id": "delay_s",
-     "label": "Delay",
-     "kind": "number",
-     "required": true,
-     "default": 0,
-     "unit": "s",
-     "min": 0,
-     "max": 86400
-    }
-   ]
-  },
-  "modbus_read": {
-   "label": "Modbus Read",
-   "category": "Modbus",
-   "description": "Reads a register or coil of any Modbus RTU device on the controller's RS-485 port (port set to Modbus Master). T3000 program sheets only.",
-   "inputs": [],
-   "outputs": [
-    {
-     "id": "value",
-     "label": "Value",
-     "type": {
-      "param": "value_type"
-     },
-     "unit": {
-      "param": "unit"
-     }
-    }
-   ],
-   "params": [
-    {
-     "id": "slave",
-     "label": "Slave ID",
-     "kind": "number",
-     "required": true,
-     "default": 1,
-     "min": 1,
-     "max": 254
-    },
-    {
-     "id": "register_type",
-     "label": "Register Type",
-     "kind": "enum",
-     "options": [
-      "holding",
-      "input_register",
-      "coil",
-      "discrete_input",
-      "holding_float_abcd",
-      "holding_float_cdab",
-      "holding_float_badc",
-      "holding_float_dcba",
-      "input_float_abcd",
-      "input_float_cdab",
-      "input_float_badc",
-      "input_float_dcba"
-     ],
-     "default": "holding"
-    },
-    {
-     "id": "address",
-     "label": "Register",
-     "kind": "number",
-     "required": true,
-     "default": 0,
-     "min": 0,
-     "max": 65535
-    },
-    {
-     "id": "scale",
-     "label": "Scale (x)",
-     "kind": "number",
-     "default": 1
-    },
-    {
-     "id": "value_type",
-     "label": "Value Type",
-     "kind": "enum",
-     "options": [
-      "number",
-      "boolean"
-     ],
-     "default": "number"
-    },
-    {
-     "id": "unit",
-     "label": "Unit",
-     "kind": "string",
-     "default": ""
-    }
-   ]
-  },
-  "modbus_write": {
-   "label": "Modbus Write",
-   "category": "Modbus",
-   "description": "Writes a holding register or coil of any Modbus RTU device on the controller's RS-485 port (port set to Modbus Master). T3000 program sheets only.",
-   "inputs": [
-    {
-     "id": "in",
-     "label": "In",
-     "type": {
-      "param": "value_type"
-     },
-     "required": true
-    }
-   ],
-   "outputs": [],
-   "params": [
-    {
-     "id": "slave",
-     "label": "Slave ID",
-     "kind": "number",
-     "required": true,
-     "default": 1,
-     "min": 1,
-     "max": 254
-    },
-    {
-     "id": "register_type",
-     "label": "Register Type",
-     "kind": "enum",
-     "options": [
-      "holding",
-      "coil",
-      "holding_float_abcd",
-      "holding_float_cdab",
-      "holding_float_badc",
-      "holding_float_dcba"
-     ],
-     "default": "holding"
-    },
-    {
-     "id": "address",
-     "label": "Register",
-     "kind": "number",
-     "required": true,
-     "default": 0,
-     "min": 0,
-     "max": 65535
-    },
-    {
-     "id": "scale",
-     "label": "Scale (x)",
-     "kind": "number",
-     "default": 1
-    },
-    {
-     "id": "value_type",
-     "label": "Value Type",
-     "kind": "enum",
-     "options": [
-      "number",
-      "boolean"
-     ],
-     "default": "number"
-    }
-   ]
-  }
- }
 }

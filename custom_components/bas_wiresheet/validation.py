@@ -10,6 +10,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from . import panels
+
 SCHEMA = "bas-wiresheet/1"
 _CATALOG_PATH = Path(__file__).parent / "runtime" / "blocks.json"
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -102,6 +104,23 @@ def validate_sheet(
     """Return a list of issues. An empty list (or warnings only) means valid.
 
     known_entities: optional {entity_id: {"unit": str}} taken from Home Assistant.
+    Controller faceplates on T3000 sheets are checked as the T3000 Read / Write blocks they expand to.
+    """
+    if panels.has_panels(sheet) and sheet.get("mode") == "t3000":
+        flat, origin, extra = panels.expand(sheet)
+        return extra + panels.map_issues(_validate_sheet(flat, catalog=catalog, known_entities=known_entities), origin)
+    return _validate_sheet(sheet, catalog=catalog, known_entities=known_entities)
+
+
+def _validate_sheet(
+    sheet: Any,
+    *,
+    catalog: dict | None = None,
+    known_entities: dict[str, dict] | None = None,
+) -> list[dict[str, Any]]:
+    """Return a list of issues. An empty list (or warnings only) means valid.
+
+    known_entities: optional {entity_id: {"unit": str}} taken from Home Assistant.
     """
     catalog = catalog or load_catalog()
     issues: list[dict[str, Any]] = []
@@ -164,7 +183,7 @@ def validate_sheet(
         if b.get("type") == "modbus_write" and (b.get("params") or {}).get("register_type") not in (None, "holding", "coil", "holding_float_abcd",
                                                                                                     "holding_float_cdab", "holding_float_badc", "holding_float_dcba"):
             issues.append(_issue("modbus_write_type", "Only holding registers and coils can be written", block=bid, param="register_type"))
-        if b.get("type") in T3_ONLY_BLOCKS and mode != "t3000":
+        if (b.get("type") in T3_ONLY_BLOCKS or b.get("type") in panels.PANEL_TYPES) and mode != "t3000":
             issues.append(_issue("t3_block_mode", f"{bdef['label']} is only allowed on T3000 program sheets", block=bid))
         if mode == "t3000" and b.get("type") in MONITORING_ONLY_BLOCKS:
             issues.append(_issue("t3_block_mode", f"{bdef['label']} cannot run on a T3000 controller", block=bid))

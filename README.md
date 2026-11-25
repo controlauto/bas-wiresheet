@@ -37,7 +37,7 @@ and TEMCO controllers on **BACnet MS/TP** behind a BACnet router are supported.
 - **Discovery**: Who-Is through the BACnet/IP integration; TEMCO controllers on BACnet/IP and MS/TP.
 
 **Wire sheets**
-- 38 blocks in 10 families, each with its own colour and symbol: inputs, T3000 points, logic (AND, OR, NOT, XOR, SR latch,
+- 40 blocks in 10 families, each with its own colour and symbol: inputs, T3000 points, logic (AND, OR, NOT, XOR, SR latch,
   edge pulse), math (add … moving average, rate of change, counter), control (limit, scale, hysteresis, select, PI,
   rate limit), timers, Modbus, data quality (freshness), alarms (range check, alarm with delay and severity) and displays.
 - **Modbus Read / Modbus Write** blocks for any Modbus RTU device (meters, drives, other brands) on a controller port in
@@ -45,6 +45,12 @@ and TEMCO controllers on **BACnet MS/TP** behind a BACnet router are supported.
   They compile to Control Basic remote points (`<panel>.<slave>.MB_REG<n>`).
 - **Send to Controller**: one step from a T3000 sheet — saves a revision, compiles, shows the change against the
   controller, then loads or replaces the program, verifies it, keeps a backup and starts it.
+- **Controller faceplates** (*Controller Inputs* and *Controller Outputs*): the controller drawn as terminal strips with
+  the point label, live value, status light and hand/auto switch per terminal, plus its ports (Ethernet, COM0-COM2 with
+  mode and baud rate) and status lights. Wire straight to a terminal: a wire from an input terminal reads that input, a
+  wire into an output terminal writes that output (same Control Basic as T3000 Read / Write). Terminals follow the
+  model: T3-BB 32 IN / 12 DO / 12 AO, T3-LB 16 / 6 / 4, T3-TB 8 / 8 / 6, T3-TB-11I 11 / 6 / 5, TSTAT10 8 / 5 / 2.
+  *Wired only* hides unused terminals.
 - Orthogonal **auto-routed wires** (or curved), **Tidy Layout**, and blocks that show the point label.
 - **T3000 sheets** compile to Control Basic and load to a controller program; generated code is checked to survive
   T3000's listing round trip. A sheet can also be **generated from an existing controller program**.

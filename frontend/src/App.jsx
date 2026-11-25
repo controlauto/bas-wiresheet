@@ -7,8 +7,9 @@ import { routeAll, roundedPath, elbowPoints, labelPoint, tidyLayout } from "./ro
 import RT from "../../custom_components/bas_wiresheet/runtime/runtime.js";
 import {
   sheetToFlow, flowToSheet, defaultParams, newId, resolvePortType, resolvePortUnit, fmtValue, fmtTime, fmtAge,
-  qualityLabel, FRESH_CLASS, SCHEMA, t3LiveSnapshot, cloneSelection,
+  qualityLabel, FRESH_CLASS, SCHEMA, t3LiveSnapshot, cloneSelection, nodeTypeOf,
 } from "./model.js";
+import { Faceplate, PANEL_TYPES } from "./Faceplate.jsx";
 import SCENARIOS from "./scenarios.js";
 import Explorer from "./Explorer.jsx";
 import { History, TrendChart, buildDocument, SheetRuntime, TemplateDialog } from "./Extras.jsx";
@@ -37,7 +38,7 @@ export const CATEGORY_STYLE = {
 export const BLOCK_ICON = {
   entity_input: "⇢", constant: "#", compare: "≷", and: "&", or: "≥1", not: "¬", xor: "=1", latch: "SR", edge: "↑⎍",
   on_delay: "T→", off_delay: "→T", data_freshness: "◷", status_display: "▣", alarm: "⚠", range_check: "⟦ ⟧",
-  t3_read: "⇥", t3_write: "⇤", modbus_read: "MB⇥", modbus_write: "MB⇤", cb_unmapped: "?", cb_local_read: "L⇥", cb_local_write: "L⇤",
+  t3_read: "⇥", t3_write: "⇤", t3_panel_in: "▥⇥", t3_panel_out: "⇤▥", modbus_read: "MB⇥", modbus_write: "MB⇤", cb_unmapped: "?", cb_local_read: "L⇥", cb_local_write: "L⇤",
   add: "+", subtract: "−", multiply: "×", divide: "÷", minimum: "min", maximum: "max", absolute: "|x|",
   limit: "⊓", scale: "⤢", hysteresis: "⌇", select: "⇋", pi: "PI", counter: "Σn", average: "x̄", rate: "Δ/t", ramp: "⟋",
 };
@@ -179,7 +180,12 @@ function BasEdge(props) {
   );
 }
 
-const nodeTypes = { bas: BlockNode };
+function PanelNode({ id, data, selected }) {
+  const c = useCtx();
+  return <Faceplate id={id} block={data.block} selected={selected} c={c} />;
+}
+
+const nodeTypes = { bas: BlockNode, panel: PanelNode };
 const edgeTypes = { bas: BasEdge };
 
 /* ======================= inspector ======================= */
@@ -367,7 +373,7 @@ function useSimulation(sheet, active) {
     const start = scenario ? Date.parse(scenario.start) : Date.now();
     if (scenario) Object.entries(scenario.entities || {}).forEach(([id, o]) => src.configure(id, o));
     else rt.entityIds().forEach((id) => src.configure(id, { write_mode: "every_sample" }));
-    sheet.blocks.forEach((b) => { if (b.type === "t3_read" && b.params.point) rt.setPoint(b.params.point, 0); if (b.type === "modbus_read") rt.setPoint(RT.modbusKey(b.params), 0); });
+    RT.expandPanels(sheet).sheet.blocks.forEach((b) => { if (b.type === "t3_read" && b.params.point) rt.setPoint(b.params.point, 0); if (b.type === "modbus_read") rt.setPoint(RT.modbusKey(b.params), 0); });
     sim.current = { rt, src, start, clock: start, scenario, ei: 0, events: scenario ? [...scenario.events].sort((a, b) => a.t - b.t) : [], playing: false, speed: 1, snapshot: rt.tick(start), log: [] };
     setTick((x) => x + 1);
   }, [sheet]);
@@ -440,7 +446,7 @@ function SimPanel({ sim, sheet }) {
       </div>
       {s.scenario && <div className="muted small">{s.scenario.description}</div>}
       {sheet.mode === "t3000" && <table className="simtab" data-testid="sim-t3-points"><thead><tr><th>Controller Point</th><th>Simulated Value</th></tr></thead>
-        <tbody>{[...new Set([...sheet.blocks.filter((b) => b.type === "t3_read" && b.params.point).map((b) => b.params.point.toUpperCase()), ...sheet.blocks.filter((b) => b.type === "modbus_read").map((b) => RT.modbusKey(b.params))])].map((pt) => (
+        <tbody>{[...new Set([...RT.expandPanels(sheet).sheet.blocks.filter((b) => b.type === "t3_read" && b.params.point).map((b) => b.params.point.toUpperCase()), ...sheet.blocks.filter((b) => b.type === "modbus_read").map((b) => RT.modbusKey(b.params))])].map((pt) => (
           <tr key={pt}><td className="mono">{pt}</td><td><input type="number" step="any" className="mono" defaultValue={0} onChange={(ev) => { if (ev.target.value !== "") sim.point(pt, Number(ev.target.value)); }} data-testid={`sim-point-${pt}`} /></td></tr>
         ))}</tbody></table>}
       <table className="simtab">
@@ -576,9 +582,10 @@ function Editor({ hass, boot, initialSheet }) {
 
   // T3000 sheets: controller points as Home Assistant reports them (point picker and Live Monitoring)
   const [t3Points, setT3Points] = useState(null);
+  const [t3Device, setT3Device] = useState(null);
   const t3Instance = meta && meta.mode === "t3000" && meta.t3000 ? meta.t3000.device_instance : null;
   useEffect(() => {
-    if (t3Instance === null || t3Instance === undefined) { setT3Points(null); return undefined; }
+    if (t3Instance === null || t3Instance === undefined) { setT3Points(null); setT3Device(null); return undefined; }
     let stop = false, deviceId = null;
     const load = async () => {
       try {
@@ -588,13 +595,25 @@ function Editor({ hass, boot, initialSheet }) {
           deviceId = d.device_id;
         }
         const r = await ws({ type: "bas_wiresheet/t3_points", device_id: deviceId });
-        if (!stop) setT3Points(r.points);
+        if (!stop) { setT3Points(r.points); setT3Device(r.device); }
       } catch { if (!stop) setT3Points([]); }
     };
     load();
     const h = mode === MODE.LIVE ? setInterval(load, 5000) : null;
     return () => { stop = true; if (h) clearInterval(h); };
   }, [t3Instance, mode, ws]);
+  // Controller Outputs faceplate: port modes from the controller settings (read once per controller)
+  const hasOutPanel = !!(sheet && sheet.blocks.some((b) => b.type === "t3_panel_out"));
+  const [t3Settings, setT3Settings] = useState(null);
+  const [t3SettingsError, setT3SettingsError] = useState(null);
+  useEffect(() => {
+    setT3Settings(null); setT3SettingsError(null);
+    if (!t3Instance || !hasOutPanel) return undefined;
+    let stop = false;
+    ws({ type: "bas_wiresheet/t3_settings", instance: t3Instance })
+      .then((r) => { if (!stop) setT3Settings(r); }).catch((e) => { if (!stop) setT3SettingsError(e.message); });
+    return () => { stop = true; };
+  }, [t3Instance, hasOutPanel, ws]);
   // Live Monitoring of T3000 sheets: timers and locals from the running program (read only, every 10 s)
   const t3Slot = meta && meta.mode === "t3000" && meta.t3000 ? meta.t3000.program_slot : null;
   const t3Imported = !!(meta && meta.t3000 && meta.t3000.imported);
@@ -723,6 +742,18 @@ function Editor({ hass, boot, initialSheet }) {
     if (readOnly) return;
     pushHist();
     const taken = new Set(edges.map((e) => e.id));
+    // a faceplate terminal carries the value type of the block it is wired to (number or boolean)
+    const portType = (nid, handle, dir) => {
+      const n = nodeById[nid]; if (!n) return null;
+      const b = n.data.block, d = catalog.blocks[b.type];
+      const pd = d && d[dir].find((x) => x.id === handle);
+      const t = pd ? resolvePortType(b, pd, catalog) : null;
+      return t === "number" || t === "boolean" ? t : null;
+    };
+    const src = nodeById[c.source], dst = nodeById[c.target];
+    const pinSet = (nid, pin, t) => { if (t) setNodes((ns) => ns.map((x) => (x.id === nid ? { ...x, data: { block: { ...x.data.block, params: { ...x.data.block.params, pins: { ...((x.data.block.params || {}).pins || {}), [pin]: t } } } } } : x))); };
+    if (dst && dst.data.block.type === "t3_panel_out") pinSet(c.target, c.targetHandle, portType(c.source, c.sourceHandle, "outputs"));
+    if (src && src.data.block.type === "t3_panel_in") pinSet(c.source, c.sourceHandle, portType(c.target, c.targetHandle, "inputs"));
     // an input accepts one wire: replace the existing one
     setEdges((e) => [...e.filter((x) => !(x.target === c.target && x.targetHandle === c.targetHandle)), { ...c, id: newId("w", taken), type: "bas" }]);
   };
@@ -737,7 +768,7 @@ function Editor({ hass, boot, initialSheet }) {
     const taken = new Set(nodes.map((n) => n.id));
     const id = newId(type.replace(/_/g, ""), taken);
     const block = { id, type, label: catalog.blocks[type].label, params: defaultParams(catalog, type), position: pos };
-    setNodes((n) => [...n, { id, type: "bas", position: pos, data: { block }, selected: true }]);
+    setNodes((n) => [...n, { id, type: nodeTypeOf(type), position: pos, data: { block }, selected: true }]);
     setSelection({ kind: "node", id });
   };
   const updateBlock = (id, fn) => { pushHist(); setNodes((n) => n.map((x) => (x.id === id ? { ...x, data: { block: fn({ ...x.data.block, params: { ...x.data.block.params } }) } } : x))); };
@@ -863,7 +894,12 @@ function Editor({ hass, boot, initialSheet }) {
     return p ? catalog.port_types[resolvePortType(n.data.block, p, catalog)]?.color : "#667";
   };
   const errors = issues.filter((i) => i.severity === "error");
-  const ctx = { t3Points, catalog, hass, issuesByBlock, issuesByWire, snapshot, mode, readOnly, equipment, now: mode === MODE.SIM && sim.state ? sim.state.clock : now, nodeById, liveOk, wireColor, routes, wireStyle };
+  const usedPins = useMemo(() => {
+    const m = {};
+    edges.forEach((e) => { (m[e.source] = m[e.source] || new Set()).add(e.sourceHandle); (m[e.target] = m[e.target] || new Set()).add(e.targetHandle); });
+    return m;
+  }, [edges]);
+  const ctx = { t3Points, t3Device, t3Settings, t3SettingsError, t3Instance, usedPins, catalog, hass, issuesByBlock, issuesByWire, snapshot, mode, readOnly, equipment, now: mode === MODE.SIM && sim.state ? sim.state.clock : now, nodeById, liveOk, wireColor, routes, wireStyle };
 
   const selNode = selection && selection.kind === "node" && nodeById[selection.id];
   const trendEntity = (() => {

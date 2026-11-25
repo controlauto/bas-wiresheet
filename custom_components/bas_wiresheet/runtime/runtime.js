@@ -465,9 +465,61 @@
     return out;
   }
 
+  /* Controller faceplates (Controller Inputs / Outputs) -> one T3000 Read per wired input terminal and one T3000 Write
+     per wired output terminal. Same rules as panels.py expand(); keep them equal. */
+  var PANEL_TYPES = { t3_panel_in: "IN", t3_panel_out: "OUT" };
+  var PIN_RE = /^(IN|OUT)([1-9]\d*)$/;
+  function hasPanels(sheet) {
+    return !!(sheet && Array.isArray(sheet.blocks) && sheet.blocks.some(function (b) { return b && PANEL_TYPES[b.type]; }));
+  }
+  function expandPanels(sheet) {
+    if (!hasPanels(sheet)) return { sheet: sheet, origin: {}, issues: [] };
+    var panels = {};
+    sheet.blocks.forEach(function (b) { if (b && PANEL_TYPES[b.type] && typeof b.id === "string") panels[b.id] = b; });
+    var flat = {};
+    Object.keys(sheet).forEach(function (k) { if (k !== "blocks" && k !== "wires") flat[k] = sheet[k]; });
+    var blocks = sheet.blocks.filter(function (b) { return !(b && panels[b.id]); }).map(function (b) { return JSON.parse(JSON.stringify(b)); });
+    var wires = [], origin = {}, issues = [], made = {};
+    function virtual(pid, pin, kind) {
+      var vid = pid + "__" + pin;
+      if (!made[vid]) {
+        made[vid] = true;
+        var p = panels[pid], vt = ((p.params || {}).pins || {})[pin];
+        vt = vt === "number" || vt === "boolean" ? vt : "number";
+        var params = { point: pin, value_type: vt };
+        if (kind === "t3_read") params.unit = "";
+        blocks.push({ id: vid, type: kind, label: pin, params: params, position: JSON.parse(JSON.stringify(p.position || { x: 0, y: 0 })) });
+        origin[vid] = [pid, pin];
+      }
+      return vid;
+    }
+    (sheet.wires || []).forEach(function (w0) {
+      if (!w0 || !w0.from || !w0.to) { wires.push(JSON.parse(JSON.stringify(w0))); return; }
+      var w = JSON.parse(JSON.stringify(w0)), bad = false, m;
+      if (panels[w.from.block]) {
+        m = PIN_RE.exec(String(w.from.port || "").toUpperCase());
+        if (PANEL_TYPES[panels[w.from.block].type] !== "IN" || !m || m[1] !== "IN") {
+          issues.push({ severity: "error", code: "panel_pin", message: w.from.port + " is not an input terminal of this controller", block: w.from.block, port: w.from.port, wire: w.id });
+          bad = true;
+        } else w.from = { block: virtual(w.from.block, m[0], "t3_read"), port: "value" };
+      }
+      if (panels[w.to.block]) {
+        m = PIN_RE.exec(String(w.to.port || "").toUpperCase());
+        if (PANEL_TYPES[panels[w.to.block].type] !== "OUT" || !m || m[1] !== "OUT") {
+          issues.push({ severity: "error", code: "panel_pin", message: w.to.port + " is not an output terminal of this controller", block: w.to.block, port: w.to.port, wire: w.id });
+          bad = true;
+        } else w.to = { block: virtual(w.to.block, m[0], "t3_write"), port: "in" };
+      }
+      if (!bad) wires.push(w);
+    });
+    flat.blocks = blocks; flat.wires = wires;
+    return { sheet: flat, origin: origin, issues: issues };
+  }
+
   function createRuntime(sheet, opts) {
     opts = opts || {};
     if (sheet.schema !== SCHEMA) throw new Error("Unsupported sheet schema: " + sheet.schema);
+    sheet = expandPanels(sheet).sheet;
     var order = topoOrder(sheet);
     var byId = {};
     sheet.blocks.forEach(function (b) { byId[b.id] = b; });
@@ -638,5 +690,5 @@
     return timeline;
   }
 
-  return { SCHEMA: SCHEMA, FRESHNESS: FRESHNESS, createRuntime: createRuntime, createSourceEmulator: createSourceEmulator, runScenario: runScenario, toSample: toSample, topoOrder: topoOrder, modbusKey: modbusKey };
+  return { SCHEMA: SCHEMA, FRESHNESS: FRESHNESS, createRuntime: createRuntime, createSourceEmulator: createSourceEmulator, runScenario: runScenario, toSample: toSample, topoOrder: topoOrder, modbusKey: modbusKey, expandPanels: expandPanels, PANEL_TYPES: PANEL_TYPES };
 });
