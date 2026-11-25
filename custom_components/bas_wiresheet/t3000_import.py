@@ -440,7 +440,8 @@ class _Graph:
                     continue
                 prev = base.get(point) or self.read(point)
                 b = self.block("select", f"IF → {point}")
-                self.blocks[-1].update({"assign": point, "keep": "a" if t is None else "b" if e is None else None})
+                # a branch that does not assign keeps the value from before (its env still holds prev)
+                self.blocks[-1].update({"assign": point, "keep": "a" if t is None or t == prev else "b" if e is None or e == prev else None})
                 self.wire(cond, b, "s")
                 self.wire(t or prev, b, "a")
                 self.wire(e or prev, b, "b")

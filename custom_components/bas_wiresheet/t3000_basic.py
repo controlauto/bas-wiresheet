@@ -121,6 +121,7 @@ class _Gen:
         self.stable: dict[tuple, str] = {}
         self.inplace_targets: set[str] = set()
         self.cond_users: dict[tuple, int] = {}
+        self._node_stack: list[str] = []
         self.work_locals = bool((sheet.get("t3000") or {}).get("work_locals"))
         self.local_n = 0
         self.work_locals_used: list[str] = []
@@ -493,11 +494,21 @@ class _Gen:
             return False
         if (src[0], "out") in self.memo:
             return False  # already written (used elsewhere): read it as a value
+        outer = self.blocks.get(self._node_stack[-1]) if self._node_stack else None
+        if outer is not None and (inner.get("seq") or [None])[0] != (outer.get("seq") or [None])[0]:
+            return False  # an earlier line's assignment: the point already holds it
         k = inner.get("keep")
         return self.incoming.get((src[0], k)) == prev_src if k in ("a", "b") else True
 
     def lines_of(self, bid: str, name: str, prev_src) -> int:
         """How many assignment lines this node writes (to know whether its condition is read more than once)."""
+        self._node_stack.append(bid)
+        try:
+            return self._lines_of(bid, name, prev_src)
+        finally:
+            self._node_stack.pop()
+
+    def _lines_of(self, bid: str, name: str, prev_src) -> int:
         blk, n = self.blocks[bid], 0
         for port in ("a", "b"):
             src = self.incoming.get((bid, port))
@@ -507,6 +518,13 @@ class _Gen:
         return n
 
     def emit_node(self, bid: str, name: str, prev_src, conds: list[str]) -> None:
+        self._node_stack.append(bid)
+        try:
+            self._emit_node(bid, name, prev_src, conds)
+        finally:
+            self._node_stack.pop()
+
+    def _emit_node(self, bid: str, name: str, prev_src, conds: list[str]) -> None:
         blk = self.blocks[bid]
         keep = blk.get("keep")
         csrc = self.incoming.get((bid, "s"))
@@ -653,10 +671,13 @@ class _Gen:
             inner = set()
             for b_ in assigns:
                 for port in ("a", "b"):
+                    if port == b_.get("keep"):
+                        continue  # the value the point had before: an earlier statement, written at its own place
                     src_ = self.incoming.get((b_["id"], port))
                     blk_ = self.blocks.get(src_[0]) if src_ else None
-                    if blk_ is not None and blk_.get("type") == "select" and blk_.get("assign") and self.target_name(blk_) == self.target_name(b_):
-                        inner.add(blk_["id"])
+                    if (blk_ is not None and blk_.get("type") == "select" and blk_.get("assign") and self.target_name(blk_) == self.target_name(b_)
+                            and (blk_.get("seq") or [None])[0] == (b_.get("seq") or [None])[0]):
+                        inner.add(blk_["id"])  # an IF of the same line; an assignment of an earlier line is written at its own place
             roots = [b for b in assigns if b["id"] not in inner]
             order = sorted([("a", b) for b in roots] + [("w", b) for b, _ in targets], key=lambda x: (*seq(x[1]), x[0] == "w"))
             names = dict((b["id"], n) for b, n in targets)
@@ -742,7 +763,7 @@ def generate(sheet: dict, guard: Guard) -> dict[str, Any]:
     if not errors:
         lines = _skip_runs(gen.lines) if gen.inplace else gen.lines
         numbered = [f"{(n + 1) * 10} {re.sub(r'GOTO @(\d+)', lambda m: f'GOTO {(int(m.group(1)) + 1) * 10}', line)}" for n, line in enumerate(lines)]
-        numbered.append(f"{(len(gen.lines) + 1) * 10} END")
+        numbered.append(f"{(len(lines) + 1) * 10} END")
         source = "\r\n".join(numbered) + "\r\n"
     return {"source": source, "issues": gen.issues, "reads": sorted(gen.reads), "writes": sorted(gen.writes), "work_vars": gen.work_used,
             "modbus_reads": sorted(gen.modbus_reads), "panel": gen.panel,
