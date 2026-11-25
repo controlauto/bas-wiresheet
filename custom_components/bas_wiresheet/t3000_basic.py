@@ -256,6 +256,17 @@ class _Gen:
                         parts.extend(self.chains[x][1])
                     else:
                         parts.append(self.atom(bid, x))
+            # constant and complementary operands: x OR NOT x is always true (the line after an IF ... GOTO is
+            # always reached), 1 in an AND and 0 in an OR change nothing
+            if t == "or" and ("1" in parts or any(f"( NOT {q} )" in parts for q in parts)):
+                return "1"
+            if t == "and" and ("0" in parts or any(f"( NOT {q} )" in parts for q in parts)):
+                return "0"
+            parts = [q for q in parts if q != ("1" if t == "and" else "0")]
+            if not parts:
+                return "1" if t == "and" else "0"
+            if len(parts) == 1:
+                return parts[0]
             expr = self.group("( " + f" {t.upper()} ".join(parts) + " )")
             self.chains[expr] = (t, parts)
             return expr
@@ -509,6 +520,11 @@ class _Gen:
         prefix = self.and_all(bid, conds)
         if ports == ["a", "b"] and leaf["a"] and leaf["b"]:
             va, vb = self.output(*self.incoming[(bid, "a")]), self.output(*self.incoming[(bid, "b")])
+            if not conds and c in ("1", "0"):
+                v = va if c == "1" else vb
+                if v != name:
+                    self.emit(f"{name} = {v}")
+                return
             if not conds:
                 if va == name:
                     self.emit(f"IF ( NOT {self.atom(bid, c)} ) THEN {name} = {vb}")
@@ -526,10 +542,14 @@ class _Gen:
             v = self.output(*src)
             if v == name:
                 continue  # the point already holds this value
-            self.emit(f"IF {self.and_all(bid, here)} THEN {name} = {v}")
+            cond = self.and_all(bid, here)
+            if cond == "0":
+                continue  # never runs
+            self.emit(f"{name} = {v}" if cond == "1" else f"IF {cond} THEN {name} = {v}")
         del prefix
 
     def and_all(self, bid: str, conds: list[str]) -> str:
+        conds = [c for c in conds if c != "1"]
         if not conds:
             return "1"
         if len(conds) == 1:
@@ -673,6 +693,40 @@ class _Gen:
                 self.assigned(name)
 
 
+_GUARDED_RE = re.compile(r"^IF (.+) THEN ([A-Z_][A-Z0-9_]*) = (.+)$")
+
+
+def _skip_runs(lines: list[str], min_run: int = 3) -> list[str]:
+    """IF c THEN A = 1 / IF c THEN B = 2 / IF c THEN C = 3 -> IF NOT c THEN GOTO after; A = 1; B = 2; C = 3 (as programs
+    are written by hand). Only when no assignment in the run changes something the condition reads."""
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        m = _GUARDED_RE.match(lines[i])
+        if not m or " ELSE " in lines[i]:
+            out.append(lines[i])
+            i += 1
+            continue
+        cond, j, run = m.group(1), i, []
+        while j < len(lines):
+            mj = _GUARDED_RE.match(lines[j])
+            if not mj or " ELSE " in lines[j] or mj.group(1) != cond:
+                break
+            if re.search(rf"(?<![A-Z0-9_.]){re.escape(mj.group(2))}(?![A-Z0-9_])", cond):
+                break  # this assignment changes the condition: the rest must test it again
+            run.append(f"{mj.group(2)} = {mj.group(3)}")
+            j += 1
+        if len(run) < min_run:
+            out.append(lines[i])
+            i += 1
+            continue
+        target = len(out) + 1 + len(run)
+        out.append(f"IF ( NOT {cond} ) THEN GOTO @{target}")
+        out.extend(run)
+        i = j
+    return out
+
+
 def generate(sheet: dict, guard: Guard) -> dict[str, Any]:
     """Return {'source', 'issues', 'reads', 'writes', 'work_vars'}. Source is empty when there are errors."""
     sheet, origin, pin_issues = panels.expand(sheet)  # controller faceplates -> T3000 Read / Write blocks
@@ -686,7 +740,8 @@ def generate(sheet: dict, guard: Guard) -> dict[str, Any]:
     errors = [i for i in gen.issues if i["severity"] == "error"]
     source = ""
     if not errors:
-        numbered = [f"{(n + 1) * 10} {line}" for n, line in enumerate(gen.lines)]
+        lines = _skip_runs(gen.lines) if gen.inplace else gen.lines
+        numbered = [f"{(n + 1) * 10} {re.sub(r'GOTO @(\d+)', lambda m: f'GOTO {(int(m.group(1)) + 1) * 10}', line)}" for n, line in enumerate(lines)]
         numbered.append(f"{(len(gen.lines) + 1) * 10} END")
         source = "\r\n".join(numbered) + "\r\n"
     return {"source": source, "issues": gen.issues, "reads": sorted(gen.reads), "writes": sorted(gen.writes), "work_vars": gen.work_used,
