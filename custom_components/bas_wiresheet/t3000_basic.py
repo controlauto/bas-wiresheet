@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from typing import Any, Callable
 
-from . import panels
+from . import macros, panels
 
 POINT_RE = re.compile(r"^(IN|OUT|VAR)([1-9]\d*)$")
 POINT_LIMITS = {"IN": 64, "OUT": 64, "VAR": 128}
@@ -762,7 +762,9 @@ def _skip_runs(lines: list[str], min_run: int = 3) -> list[str]:
 
 def generate(sheet: dict, guard: Guard, rems: bool = True) -> dict[str, Any]:
     """Return {'source', 'issues', 'reads', 'writes', 'work_vars'}. Source is empty when there are errors."""
+    sheet, morigin, _, macro_issues = macros.expand(sheet)  # HVAC application blocks -> basic blocks
     sheet, origin, pin_issues = panels.expand(sheet)  # controller faceplates -> T3000 Read / Write blocks
+    pin_issues = macro_issues + pin_issues
     gen = _Gen(sheet, guard)
     gen.rems = sorted(((sheet.get("t3000") or {}).get("rems") or []) if rems else [], key=lambda r: tuple(r.get("seq") or (0, 0)))
     gen.issues.extend(pin_issues)
@@ -771,6 +773,7 @@ def generate(sheet: dict, guard: Guard, rems: bool = True) -> dict[str, Any]:
     else:
         gen.run()
     panels.map_issues(gen.issues, origin)
+    gen.issues = macros.map_issues(gen.issues, morigin)
     errors = [i for i in gen.issues if i["severity"] == "error"]
     source = ""
     if not errors:

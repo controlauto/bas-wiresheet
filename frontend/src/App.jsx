@@ -35,6 +35,7 @@ export const CATEGORY_STYLE = {
   Inputs: { color: "#3987e5", tag: "IN" }, T3000: { color: "#199e70", tag: "T3" }, Modbus: { color: "#2fb5c4", tag: "MB" }, Logic: { color: "#9085e9", tag: "LOG" },
   Math: { color: "#c98500", tag: "MATH" }, Control: { color: "#d55181", tag: "CTL" }, Timers: { color: "#d95926", tag: "TMR" },
   "Data Quality": { color: "#0ca30c", tag: "DQ" }, Alarms: { color: "#e66767", tag: "ALM" }, Displays: { color: "#8b97a8", tag: "DSP" },
+  HVAC: { color: "#e0a526", tag: "HVAC" },
 };
 export const BLOCK_ICON = {
   entity_input: "⇢", constant: "#", compare: "≷", and: "&", or: "≥1", not: "¬", xor: "=1", latch: "SR", edge: "↑⎍",
@@ -42,6 +43,7 @@ export const BLOCK_ICON = {
   t3_read: "⇥", t3_write: "⇤", t3_panel_in: "▥⇥", t3_panel_out: "⇤▥", modbus_read: "MB⇥", modbus_write: "MB⇤", cb_unmapped: "?", cb_local_read: "L⇥", cb_local_write: "L⇤",
   add: "+", subtract: "−", multiply: "×", divide: "÷", minimum: "min", maximum: "max", absolute: "|x|",
   limit: "⊓", scale: "⤢", hysteresis: "⌇", select: "⇋", pi: "PI", counter: "Σn", average: "x̄", rate: "Δ/t", ramp: "⟋",
+  economizer: "≋", heating_valve: "♨", cooling_valve: "❄", oa_reset: "⟍", hx_steam: "⇌", lead_lag_pumps: "⟳⟳", fan_proof: "✣", freeze_protection: "❆",
 };
 function fmtPortValue(o) {
   if (!o) return null;
@@ -91,6 +93,7 @@ function BlockNode({ id, data, selected }) {
       {(b.type === "modbus_read" || b.type === "modbus_write") && <div className="blk-sub mono" data-testid={`mb-${id}`}>ID {b.params.slave} · {MB_SHORT[b.params.register_type] || b.params.register_type} {b.params.address}{b.params.scale !== undefined && Number(b.params.scale) !== 1 ? ` · ×${b.params.scale}` : ""}</div>}
       {b.type === "cb_unmapped" && <div className="blk-sub mono" style={{ whiteSpace: "pre-wrap", maxWidth: 260 }}>{b.params.code}</div>}
       {(b.type === "cb_local_read" || b.type === "cb_local_write") && <div className="blk-sub mono">{b.params.name}</div>}
+      {def.macro && <div className="blk-sub mono" data-testid={`hvac-${id}`}>{def.params.slice(0, 3).map((p) => `${p.label.split(" (")[0]} ${(b.params || {})[p.id] ?? p.default}`).join(" · ")}</div>}
       {b.type === "limit" && <div className="blk-sub mono">{b.params.low} to {b.params.high}</div>}
       {b.type === "scale" && <div className="blk-sub mono">{b.params.in_low}..{b.params.in_high} to {b.params.out_low}..{b.params.out_high}</div>}
       {b.type === "hysteresis" && <div className="blk-sub mono">On ≥ {b.params.on_above} · Off ≤ {b.params.off_below}</div>}
@@ -1385,7 +1388,7 @@ function DeployDialog({ ws, sheetId, rev, onClose, onDone }) {
 export default function App({ hass }) {
   const [boot, setBoot] = useState(null);
   const [err, setErr] = useState(null);
-  useEffect(() => { hass.callWS({ type: "bas_wiresheet/catalog" }).then(setBoot).catch((e) => setErr(e.message)); }, []); // eslint-disable-line
+  useEffect(() => { hass.callWS({ type: "bas_wiresheet/catalog" }).then((b) => { RT.setMacroCatalog(b.catalog.blocks); setBoot(b); }).catch((e) => setErr(e.message)); }, []); // eslint-disable-line
   if (err) return <div className="app"><div className="notel pad">BAS Wire Sheet backend error: {err}</div></div>;
   if (!boot) return <div className="app"><div className="muted pad">Loading BAS Wire Sheet…</div></div>;
   return <Shell hass={hass} boot={boot} />;

@@ -10,6 +10,24 @@ import math
 from collections import deque
 from typing import Any
 
+
+def _macros():
+    """macros.py, also when this file is loaded on its own (tests)."""
+    try:
+        from . import macros  # type: ignore[import-not-found]
+        return macros
+    except ImportError:
+        import importlib.util
+        import sys
+        from pathlib import Path
+        mod = sys.modules.get("bws_macros")
+        if mod is None:
+            spec = importlib.util.spec_from_file_location("bws_macros", Path(__file__).parent / "macros.py")
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules["bws_macros"] = mod
+            spec.loader.exec_module(mod)
+        return mod
+
 SCHEMA = "bas-wiresheet/1"
 FRESH, STALE, UNAVAILABLE, UNKNOWN = "Fresh", "Stale", "Unavailable", "Freshness Unknown"
 FUTURE_TOLERANCE_MS = 5000
@@ -572,6 +590,7 @@ class Runtime:
     def __init__(self, sheet: dict) -> None:
         if sheet.get("schema") != SCHEMA:
             raise ValueError(f"Unsupported sheet schema: {sheet.get('schema')}")
+        sheet, _, self.macro_outputs, _ = _macros().expand(sheet)  # HVAC application blocks -> basic blocks
         self.sheet = sheet
         self.order = topo_order(sheet)
         self.by_id = {b["id"]: b for b in sheet["blocks"]}
@@ -615,6 +634,8 @@ class Runtime:
             if st.get("remaining_s") is not None:
                 summary["remaining_s"] = st["remaining_s"]
             blocks[bid] = {"outputs": _strip(o), "state": summary}
+        for mid, ports in self.macro_outputs.items():  # an HVAC block shows the outputs of its inner circuit
+            blocks[mid] = {"outputs": {port: _strip_val((outs.get(ref[0]) or {}).get(ref[1])) for port, ref in ports.items()}, "state": {}}
         for w in self.sheet.get("wires", []):
             o = outs.get(w["from"]["block"])
             wires[w["id"]] = _strip_val(o.get(w["from"]["port"]) if o else None)

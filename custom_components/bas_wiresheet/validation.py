@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from . import panels
+from . import macros, panels
 
 SCHEMA = "bas-wiresheet/1"
 _CATALOG_PATH = Path(__file__).parent / "runtime" / "blocks.json"
@@ -106,6 +106,9 @@ def validate_sheet(
     known_entities: optional {entity_id: {"unit": str}} taken from Home Assistant.
     Controller faceplates on T3000 sheets are checked as the T3000 Read / Write blocks they expand to.
     """
+    if macros.has_macros(sheet):  # HVAC application blocks are checked as the basic blocks they are made of
+        flat, origin, _, extra = macros.expand(sheet)
+        return extra + macros.map_issues(validate_sheet(flat, catalog=catalog, known_entities=known_entities), origin)
     if panels.has_panels(sheet) and sheet.get("mode") == "t3000":
         flat, origin, extra = panels.expand(sheet)
         return extra + panels.map_issues(_validate_sheet(flat, catalog=catalog, known_entities=known_entities), origin)

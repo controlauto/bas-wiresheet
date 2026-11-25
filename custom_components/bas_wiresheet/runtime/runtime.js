@@ -519,10 +519,88 @@
     return { sheet: flat, origin: origin, issues: issues };
   }
 
+  /* HVAC application blocks are macros defined in blocks.json (a small circuit of basic blocks). Same rules as
+     macros.py expand(); keep them equal. The catalog is set once by the panel (setMacroCatalog); Node-RED gets sheets
+     that are already expanded. */
+  var MACRO_CATALOG = null;
+  function setMacroCatalog(blocks) { MACRO_CATALOG = blocks || null; }
+  function resolveParam(v, params) { return typeof v === "string" && v.charAt(0) === "$" ? (params[v.slice(1)] === undefined ? null : params[v.slice(1)]) : v; }
+  function mref(mid, ref) { var i = ref.indexOf("."); return [mid + "__" + ref.slice(0, i), ref.slice(i + 1)]; }
+  function hasMacros(sheet, blocks) {
+    return !!(blocks && sheet && Array.isArray(sheet.blocks) && sheet.blocks.some(function (b) { return b && blocks[b.type] && blocks[b.type].macro; }));
+  }
+  function expandMacros(sheet, blocks) {
+    blocks = blocks || MACRO_CATALOG;
+    if (!hasMacros(sheet, blocks)) return { sheet: sheet, origin: {}, outputs: {}, issues: [] };
+    var macros = {}, order = [];
+    sheet.blocks.forEach(function (b) { if (b && blocks[b.type] && blocks[b.type].macro && typeof b.id === "string") { macros[b.id] = b; order.push(b.id); } });
+    var flat = {};
+    Object.keys(sheet).forEach(function (k) { if (k !== "blocks" && k !== "wires") flat[k] = sheet[k]; });
+    var outBlocks = sheet.blocks.filter(function (b) { return !(b && macros[b.id]); }).map(function (b) { return JSON.parse(JSON.stringify(b)); });
+    var outWires = [], origin = {}, outputs = {}, issues = [], wired = {};
+    (sheet.wires || []).forEach(function (w) { if (w && w.to && macros[w.to.block]) wired[w.to.block + "\u0000" + w.to.port] = true; });
+    order.forEach(function (mid) {
+      var m = macros[mid], d = blocks[m.type], spec = d.macro, params = {};
+      (d.params || []).forEach(function (p) { params[p.id] = p["default"] === undefined ? null : p["default"]; });
+      Object.keys(m.params || {}).forEach(function (k) { if (m.params[k] !== null && m.params[k] !== undefined) params[k] = m.params[k]; });
+      var pos = JSON.parse(JSON.stringify(m.position || { x: 0, y: 0 })), name = m.label || d.label || m.type;
+      spec.blocks.forEach(function (ib) {
+        var bid = mid + "__" + ib.id, ps = {};
+        Object.keys(ib.params || {}).forEach(function (k) { ps[k] = resolveParam(ib.params[k], params); });
+        outBlocks.push({ id: bid, type: ib.type, label: name + " · " + ib.id, params: ps, position: JSON.parse(JSON.stringify(pos)) });
+        origin[bid] = mid;
+      });
+      (spec.wires || []).forEach(function (pair, n) {
+        var f = mref(mid, pair[0]), t = mref(mid, pair[1]);
+        outWires.push({ id: mid + "__w" + n, from: { block: f[0], port: f[1] }, to: { block: t[0], port: t[1] } });
+      });
+      outputs[mid] = {};
+      Object.keys(spec.outputs || {}).forEach(function (port) { outputs[mid][port] = mref(mid, spec.outputs[port]); });
+      (d.inputs || []).forEach(function (ip) {
+        var port = ip.id;
+        if (wired[mid + "\u0000" + port]) return;
+        if (spec.defaults && Object.prototype.hasOwnProperty.call(spec.defaults, port)) {
+          var value = resolveParam(spec.defaults[port], params), cid = mid + "__in_" + port;
+          outBlocks.push({ id: cid, type: "constant", label: name + " · " + port, params: { value_type: typeof value === "boolean" ? "boolean" : "number", value: value, unit: "" }, position: JSON.parse(JSON.stringify(pos)) });
+          origin[cid] = mid;
+          (spec.inputs[port] || []).forEach(function (ref, k) {
+            var t = mref(mid, ref);
+            outWires.push({ id: mid + "__in_" + port + "_" + k, from: { block: cid, port: "value" }, to: { block: t[0], port: t[1] } });
+          });
+        } else if (ip.required) {
+          issues.push({ severity: "error", code: "input_unconnected", message: "Input " + (ip.label || port) + " is not connected", block: mid, port: port });
+        }
+      });
+    });
+    (sheet.wires || []).forEach(function (w) {
+      if (!w || !w.from || !w.to) { outWires.push(JSON.parse(JSON.stringify(w))); return; }
+      var frm = { block: w.from.block, port: w.from.port };
+      if (macros[w.from.block]) {
+        var ref = outputs[w.from.block][w.from.port];
+        if (!ref) { issues.push({ severity: "error", code: "unknown_port", message: "Unknown output " + w.from.port, block: w.from.block, wire: w.id }); return; }
+        frm = { block: ref[0], port: ref[1] };
+      }
+      if (macros[w.to.block]) {
+        var targets = blocks[macros[w.to.block].type].macro.inputs[w.to.port];
+        if (!targets || !targets.length) { issues.push({ severity: "error", code: "unknown_port", message: "Unknown input " + w.to.port, block: w.to.block, wire: w.id }); return; }
+        targets.forEach(function (ref, k) {
+          var t = mref(w.to.block, ref), c = JSON.parse(JSON.stringify(w));
+          c.id = k === 0 ? w.id : w.id + "__" + k; c.from = { block: frm.block, port: frm.port }; c.to = { block: t[0], port: t[1] };
+          outWires.push(c);
+        });
+        return;
+      }
+      var c2 = JSON.parse(JSON.stringify(w)); c2.from = frm; outWires.push(c2);
+    });
+    flat.blocks = outBlocks; flat.wires = outWires;
+    return { sheet: flat, origin: origin, outputs: outputs, issues: issues };
+  }
+
   function createRuntime(sheet, opts) {
     opts = opts || {};
     if (sheet.schema !== SCHEMA) throw new Error("Unsupported sheet schema: " + sheet.schema);
-    sheet = expandPanels(sheet).sheet;
+    var mx = expandMacros(sheet, opts.catalog || MACRO_CATALOG), macroOutputs = mx.outputs;
+    sheet = expandPanels(mx.sheet).sheet;
     var order = topoOrder(sheet);
     var byId = {};
     sheet.blocks.forEach(function (b) { byId[b.id] = b; });
@@ -567,6 +645,14 @@
         var summary = {};
         if (st.remaining_s !== undefined && st.remaining_s !== null) summary.remaining_s = st.remaining_s;
         blocks[id] = { outputs: stripSample(o), state: summary };
+      });
+      Object.keys(macroOutputs).forEach(function (mid) {  // an HVAC block shows the outputs of its inner circuit
+        var mo = {};
+        Object.keys(macroOutputs[mid]).forEach(function (port) {
+          var ref = macroOutputs[mid][port], src = outs[ref[0]];
+          mo[port] = stripSampleVal(src ? src[ref[1]] : undefined);
+        });
+        blocks[mid] = { outputs: mo, state: {} };
       });
       (sheet.wires || []).forEach(function (w) {
         var o = outs[w.from.block];
@@ -693,5 +779,6 @@
     return timeline;
   }
 
-  return { SCHEMA: SCHEMA, FRESHNESS: FRESHNESS, createRuntime: createRuntime, createSourceEmulator: createSourceEmulator, runScenario: runScenario, toSample: toSample, topoOrder: topoOrder, modbusKey: modbusKey, expandPanels: expandPanels, PANEL_TYPES: PANEL_TYPES };
+  return { SCHEMA: SCHEMA, FRESHNESS: FRESHNESS, createRuntime: createRuntime, createSourceEmulator: createSourceEmulator, runScenario: runScenario, toSample: toSample, topoOrder: topoOrder, modbusKey: modbusKey, expandPanels: expandPanels, PANEL_TYPES: PANEL_TYPES,
+    expandMacros: expandMacros, setMacroCatalog: setMacroCatalog };
 });

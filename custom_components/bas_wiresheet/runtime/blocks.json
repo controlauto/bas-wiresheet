@@ -31,6 +31,7 @@
     "Data Quality",
     "T3000",
     "Modbus",
+    "HVAC",
     "Alarms",
     "Displays"
   ],
@@ -1524,6 +1525,1447 @@
           "default": "number"
         }
       ]
+    },
+    "heating_valve": {
+      "label": "Heating Valve",
+      "category": "HVAC",
+      "description": "PI heating valve (reverse acting) on a supply or discharge temperature. Disabled: closed. Freeze input: 100 % open.",
+      "inputs": [
+        {
+          "id": "temp",
+          "label": "Temperature",
+          "type": "number",
+          "required": true
+        },
+        {
+          "id": "setpoint",
+          "label": "Setpoint",
+          "type": "number",
+          "required": true
+        },
+        {
+          "id": "enable",
+          "label": "Enable",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "id": "freeze",
+          "label": "Freeze",
+          "type": "boolean",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "valve",
+          "label": "Valve %",
+          "type": "number"
+        },
+        {
+          "id": "heating",
+          "label": "Heating",
+          "type": "boolean"
+        }
+      ],
+      "params": [
+        {
+          "id": "kp",
+          "label": "Kp",
+          "kind": "number",
+          "default": 2
+        },
+        {
+          "id": "ki",
+          "label": "Ki (per s)",
+          "kind": "number",
+          "default": 0.05
+        },
+        {
+          "id": "min",
+          "label": "Valve min %",
+          "kind": "number",
+          "default": 0
+        },
+        {
+          "id": "max",
+          "label": "Valve max %",
+          "kind": "number",
+          "default": 100
+        }
+      ],
+      "macro": {
+        "blocks": [
+          {
+            "id": "pi",
+            "type": "pi",
+            "params": {
+              "kp": "$kp",
+              "ki": "$ki",
+              "out_min": "$min",
+              "out_max": "$max",
+              "action": "reverse"
+            }
+          },
+          {
+            "id": "full",
+            "type": "constant",
+            "params": {
+              "value_type": "number",
+              "value": 100,
+              "unit": ""
+            }
+          },
+          {
+            "id": "sel",
+            "type": "select",
+            "params": {}
+          },
+          {
+            "id": "zero",
+            "type": "constant",
+            "params": {
+              "value_type": "number",
+              "value": 0,
+              "unit": ""
+            }
+          },
+          {
+            "id": "on",
+            "type": "compare",
+            "params": {
+              "op": ">"
+            }
+          }
+        ],
+        "wires": [
+          [
+            "full.value",
+            "sel.a"
+          ],
+          [
+            "pi.out",
+            "sel.b"
+          ],
+          [
+            "sel.out",
+            "on.a"
+          ],
+          [
+            "zero.value",
+            "on.b"
+          ]
+        ],
+        "inputs": {
+          "temp": [
+            "pi.pv"
+          ],
+          "setpoint": [
+            "pi.sp"
+          ],
+          "enable": [
+            "pi.en"
+          ],
+          "freeze": [
+            "sel.s"
+          ]
+        },
+        "defaults": {
+          "enable": true,
+          "freeze": false
+        },
+        "outputs": {
+          "valve": "sel.out",
+          "heating": "on.out"
+        }
+      }
+    },
+    "cooling_valve": {
+      "label": "Cooling Valve",
+      "category": "HVAC",
+      "description": "PI cooling valve (direct acting) on a supply or discharge temperature, locked out below an outdoor temperature. Disabled or locked out: closed.",
+      "inputs": [
+        {
+          "id": "temp",
+          "label": "Temperature",
+          "type": "number",
+          "required": true
+        },
+        {
+          "id": "setpoint",
+          "label": "Setpoint",
+          "type": "number",
+          "required": true
+        },
+        {
+          "id": "enable",
+          "label": "Enable",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "id": "oat",
+          "label": "Outdoor Temp",
+          "type": "number",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "valve",
+          "label": "Valve %",
+          "type": "number"
+        },
+        {
+          "id": "cooling",
+          "label": "Cooling",
+          "type": "boolean"
+        }
+      ],
+      "params": [
+        {
+          "id": "kp",
+          "label": "Kp",
+          "kind": "number",
+          "default": 2
+        },
+        {
+          "id": "ki",
+          "label": "Ki (per s)",
+          "kind": "number",
+          "default": 0.05
+        },
+        {
+          "id": "min",
+          "label": "Valve min %",
+          "kind": "number",
+          "default": 0
+        },
+        {
+          "id": "max",
+          "label": "Valve max %",
+          "kind": "number",
+          "default": 100
+        },
+        {
+          "id": "lockout_oat",
+          "label": "Lockout below OAT",
+          "kind": "number",
+          "default": 50
+        }
+      ],
+      "macro": {
+        "blocks": [
+          {
+            "id": "lock",
+            "type": "constant",
+            "params": {
+              "value_type": "number",
+              "value": "$lockout_oat",
+              "unit": ""
+            }
+          },
+          {
+            "id": "oatok",
+            "type": "compare",
+            "params": {
+              "op": ">="
+            }
+          },
+          {
+            "id": "en",
+            "type": "and",
+            "params": {}
+          },
+          {
+            "id": "pi",
+            "type": "pi",
+            "params": {
+              "kp": "$kp",
+              "ki": "$ki",
+              "out_min": "$min",
+              "out_max": "$max",
+              "action": "direct"
+            }
+          },
+          {
+            "id": "zero",
+            "type": "constant",
+            "params": {
+              "value_type": "number",
+              "value": 0,
+              "unit": ""
+            }
+          },
+          {
+            "id": "on",
+            "type": "compare",
+            "params": {
+              "op": ">"
+            }
+          }
+        ],
+        "wires": [
+          [
+            "lock.value",
+            "oatok.b"
+          ],
+          [
+            "oatok.out",
+            "en.b"
+          ],
+          [
+            "en.out",
+            "pi.en"
+          ],
+          [
+            "pi.out",
+            "on.a"
+          ],
+          [
+            "zero.value",
+            "on.b"
+          ]
+        ],
+        "inputs": {
+          "temp": [
+            "pi.pv"
+          ],
+          "setpoint": [
+            "pi.sp"
+          ],
+          "enable": [
+            "en.a"
+          ],
+          "oat": [
+            "oatok.a"
+          ]
+        },
+        "defaults": {
+          "enable": true,
+          "oat": 999
+        },
+        "outputs": {
+          "valve": "pi.out",
+          "cooling": "on.out"
+        }
+      }
+    },
+    "economizer": {
+      "label": "Economizer",
+      "category": "HVAC",
+      "description": "Outdoor air damper: PI on mixed air temperature when outdoor air is cooler than return and below the high limit; minimum position otherwise; minimum position on low mixed air; closed with the fan off.",
+      "inputs": [
+        {
+          "id": "oat",
+          "label": "Outdoor Temp",
+          "type": "number",
+          "required": true
+        },
+        {
+          "id": "rat",
+          "label": "Return Temp",
+          "type": "number",
+          "required": true
+        },
+        {
+          "id": "mat",
+          "label": "Mixed Air Temp",
+          "type": "number",
+          "required": true
+        },
+        {
+          "id": "fan_on",
+          "label": "Fan On",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "id": "mat_sp",
+          "label": "Mixed Air Setpoint",
+          "type": "number",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "damper",
+          "label": "Damper %",
+          "type": "number"
+        },
+        {
+          "id": "economizing",
+          "label": "Economizing",
+          "type": "boolean"
+        }
+      ],
+      "params": [
+        {
+          "id": "mat_setpoint",
+          "label": "Mixed air setpoint",
+          "kind": "number",
+          "default": 55
+        },
+        {
+          "id": "min_position",
+          "label": "Minimum position %",
+          "kind": "number",
+          "default": 20
+        },
+        {
+          "id": "high_limit",
+          "label": "High limit OAT",
+          "kind": "number",
+          "default": 65
+        },
+        {
+          "id": "low_limit",
+          "label": "Mixed air low limit",
+          "kind": "number",
+          "default": 40
+        },
+        {
+          "id": "kp",
+          "label": "Kp",
+          "kind": "number",
+          "default": 2
+        },
+        {
+          "id": "ki",
+          "label": "Ki (per s)",
+          "kind": "number",
+          "default": 0.05
+        }
+      ],
+      "macro": {
+        "blocks": [
+          {
+            "id": "cooler",
+            "type": "compare",
+            "params": {
+              "op": "<"
+            }
+          },
+          {
+            "id": "hl",
+            "type": "constant",
+            "params": {
+              "value_type": "number",
+              "value": "$high_limit",
+              "unit": ""
+            }
+          },
+          {
+            "id": "below",
+            "type": "compare",
+            "params": {
+              "op": "<"
+            }
+          },
+          {
+            "id": "allow",
+            "type": "and",
+            "params": {}
+          },
+          {
+            "id": "pi",
+            "type": "pi",
+            "params": {
+              "kp": "$kp",
+              "ki": "$ki",
+              "out_min": 0,
+              "out_max": 100,
+              "action": "direct"
+            }
+          },
+          {
+            "id": "minpos",
+            "type": "constant",
+            "params": {
+              "value_type": "number",
+              "value": "$min_position",
+              "unit": ""
+            }
+          },
+          {
+            "id": "mx",
+            "type": "maximum",
+            "params": {}
+          },
+          {
+            "id": "ll",
+            "type": "constant",
+            "params": {
+              "value_type": "number",
+              "value": "$low_limit",
+              "unit": ""
+            }
+          },
+          {
+            "id": "cold",
+            "type": "compare",
+            "params": {
+              "op": "<"
+            }
+          },
+          {
+            "id": "guard",
+            "type": "select",
+            "params": {}
+          },
+          {
+            "id": "zero",
+            "type": "constant",
+            "params": {
+              "value_type": "number",
+              "value": 0,
+              "unit": ""
+            }
+          },
+          {
+            "id": "damper",
+            "type": "select",
+            "params": {}
+          }
+        ],
+        "wires": [
+          [
+            "hl.value",
+            "below.b"
+          ],
+          [
+            "cooler.out",
+            "allow.a"
+          ],
+          [
+            "below.out",
+            "allow.b"
+          ],
+          [
+            "allow.out",
+            "pi.en"
+          ],
+          [
+            "pi.out",
+            "mx.a"
+          ],
+          [
+            "minpos.value",
+            "mx.b"
+          ],
+          [
+            "ll.value",
+            "cold.b"
+          ],
+          [
+            "cold.out",
+            "guard.s"
+          ],
+          [
+            "minpos.value",
+            "guard.a"
+          ],
+          [
+            "mx.out",
+            "guard.b"
+          ],
+          [
+            "guard.out",
+            "damper.a"
+          ],
+          [
+            "zero.value",
+            "damper.b"
+          ]
+        ],
+        "inputs": {
+          "oat": [
+            "cooler.a",
+            "below.a"
+          ],
+          "rat": [
+            "cooler.b"
+          ],
+          "mat": [
+            "pi.pv",
+            "cold.a"
+          ],
+          "fan_on": [
+            "allow.c",
+            "damper.s"
+          ],
+          "mat_sp": [
+            "pi.sp"
+          ]
+        },
+        "defaults": {
+          "fan_on": true,
+          "mat_sp": "$mat_setpoint"
+        },
+        "outputs": {
+          "damper": "damper.out",
+          "economizing": "allow.out"
+        }
+      }
+    },
+    "oa_reset": {
+      "label": "Outdoor Air Reset",
+      "category": "HVAC",
+      "description": "Setpoint reset by outdoor temperature: a straight line between two points, held at the end values.",
+      "inputs": [
+        {
+          "id": "oat",
+          "label": "Outdoor Temp",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "setpoint",
+          "label": "Setpoint",
+          "type": "number"
+        }
+      ],
+      "params": [
+        {
+          "id": "oat_low",
+          "label": "OAT low",
+          "kind": "number",
+          "default": 20
+        },
+        {
+          "id": "sp_at_low",
+          "label": "Setpoint at OAT low",
+          "kind": "number",
+          "default": 180
+        },
+        {
+          "id": "oat_high",
+          "label": "OAT high",
+          "kind": "number",
+          "default": 60
+        },
+        {
+          "id": "sp_at_high",
+          "label": "Setpoint at OAT high",
+          "kind": "number",
+          "default": 140
+        }
+      ],
+      "macro": {
+        "blocks": [
+          {
+            "id": "reset",
+            "type": "scale",
+            "params": {
+              "in_low": "$oat_low",
+              "in_high": "$oat_high",
+              "out_low": "$sp_at_low",
+              "out_high": "$sp_at_high",
+              "clamp": "yes"
+            }
+          }
+        ],
+        "wires": [],
+        "inputs": {
+          "oat": [
+            "reset.in"
+          ]
+        },
+        "defaults": {},
+        "outputs": {
+          "setpoint": "reset.out"
+        }
+      }
+    },
+    "hx_steam": {
+      "label": "Heat Exchanger",
+      "category": "HVAC",
+      "description": "Steam or hot water heat exchanger: outdoor air reset setpoint, heating allowed below an outdoor temperature (with hysteresis), pump command with post-run, PI valve enabled after the pump is proven for a delay.",
+      "inputs": [
+        {
+          "id": "supply_temp",
+          "label": "Supply Temp",
+          "type": "number",
+          "required": true
+        },
+        {
+          "id": "oat",
+          "label": "Outdoor Temp",
+          "type": "number",
+          "required": true
+        },
+        {
+          "id": "enable",
+          "label": "Enable",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "id": "pump_proof",
+          "label": "Pump Proof",
+          "type": "boolean",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "valve",
+          "label": "Valve %",
+          "type": "number"
+        },
+        {
+          "id": "pump",
+          "label": "Pump Command",
+          "type": "boolean"
+        },
+        {
+          "id": "setpoint",
+          "label": "Supply Setpoint",
+          "type": "number"
+        },
+        {
+          "id": "heating",
+          "label": "Heating",
+          "type": "boolean"
+        }
+      ],
+      "params": [
+        {
+          "id": "oat_low",
+          "label": "Reset OAT low",
+          "kind": "number",
+          "default": 20
+        },
+        {
+          "id": "sp_at_low",
+          "label": "Setpoint at OAT low",
+          "kind": "number",
+          "default": 180
+        },
+        {
+          "id": "oat_high",
+          "label": "Reset OAT high",
+          "kind": "number",
+          "default": 60
+        },
+        {
+          "id": "sp_at_high",
+          "label": "Setpoint at OAT high",
+          "kind": "number",
+          "default": 140
+        },
+        {
+          "id": "heat_on_below",
+          "label": "Heat on below OAT",
+          "kind": "number",
+          "default": 55
+        },
+        {
+          "id": "heat_off_above",
+          "label": "Heat off above OAT",
+          "kind": "number",
+          "default": 60
+        },
+        {
+          "id": "kp",
+          "label": "Kp",
+          "kind": "number",
+          "default": 2
+        },
+        {
+          "id": "ki",
+          "label": "Ki (per s)",
+          "kind": "number",
+          "default": 0.05
+        },
+        {
+          "id": "valve_max",
+          "label": "Valve max %",
+          "kind": "number",
+          "default": 100
+        },
+        {
+          "id": "valve_delay",
+          "label": "Valve delay after proof (s)",
+          "kind": "number",
+          "default": 5
+        },
+        {
+          "id": "pump_postrun",
+          "label": "Pump post-run (s)",
+          "kind": "number",
+          "default": 90
+        }
+      ],
+      "macro": {
+        "blocks": [
+          {
+            "id": "reset",
+            "type": "scale",
+            "params": {
+              "in_low": "$oat_low",
+              "in_high": "$oat_high",
+              "out_low": "$sp_at_low",
+              "out_high": "$sp_at_high",
+              "clamp": "yes"
+            }
+          },
+          {
+            "id": "warm",
+            "type": "hysteresis",
+            "params": {
+              "on_above": "$heat_off_above",
+              "off_below": "$heat_on_below"
+            }
+          },
+          {
+            "id": "cold",
+            "type": "not",
+            "params": {}
+          },
+          {
+            "id": "req",
+            "type": "and",
+            "params": {}
+          },
+          {
+            "id": "pump",
+            "type": "off_delay",
+            "params": {
+              "delay_s": "$pump_postrun"
+            }
+          },
+          {
+            "id": "proven",
+            "type": "and",
+            "params": {}
+          },
+          {
+            "id": "vdelay",
+            "type": "on_delay",
+            "params": {
+              "delay_s": "$valve_delay"
+            }
+          },
+          {
+            "id": "pi",
+            "type": "pi",
+            "params": {
+              "kp": "$kp",
+              "ki": "$ki",
+              "out_min": 0,
+              "out_max": "$valve_max",
+              "action": "reverse"
+            }
+          }
+        ],
+        "wires": [
+          [
+            "warm.out",
+            "cold.in"
+          ],
+          [
+            "cold.out",
+            "req.b"
+          ],
+          [
+            "req.out",
+            "pump.in"
+          ],
+          [
+            "req.out",
+            "proven.a"
+          ],
+          [
+            "proven.out",
+            "vdelay.in"
+          ],
+          [
+            "vdelay.out",
+            "pi.en"
+          ],
+          [
+            "reset.out",
+            "pi.sp"
+          ]
+        ],
+        "inputs": {
+          "supply_temp": [
+            "pi.pv"
+          ],
+          "oat": [
+            "reset.in",
+            "warm.in"
+          ],
+          "enable": [
+            "req.a"
+          ],
+          "pump_proof": [
+            "proven.b"
+          ]
+        },
+        "defaults": {
+          "enable": true,
+          "pump_proof": true
+        },
+        "outputs": {
+          "valve": "pi.out",
+          "pump": "pump.out",
+          "setpoint": "reset.out",
+          "heating": "req.out"
+        }
+      }
+    },
+    "lead_lag_pumps": {
+      "label": "Lead/Lag Pumps",
+      "category": "HVAC",
+      "description": "Two pumps: the lead runs when enabled; if it does not prove within the delay it is failed (held until disabled) and the other pump runs. Both failed raises an alarm.",
+      "inputs": [
+        {
+          "id": "enable",
+          "label": "Enable",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "id": "proof1",
+          "label": "Pump 1 Proof",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "id": "proof2",
+          "label": "Pump 2 Proof",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "id": "pump2_lead",
+          "label": "Pump 2 Lead",
+          "type": "boolean",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "pump1",
+          "label": "Pump 1",
+          "type": "boolean"
+        },
+        {
+          "id": "pump2",
+          "label": "Pump 2",
+          "type": "boolean"
+        },
+        {
+          "id": "pump1_fail",
+          "label": "Pump 1 Fail",
+          "type": "boolean"
+        },
+        {
+          "id": "pump2_fail",
+          "label": "Pump 2 Fail",
+          "type": "boolean"
+        },
+        {
+          "id": "both_fail",
+          "label": "Both Failed",
+          "type": "boolean"
+        }
+      ],
+      "params": [
+        {
+          "id": "proof_delay",
+          "label": "Proof delay (s)",
+          "kind": "number",
+          "default": 15
+        }
+      ],
+      "macro": {
+        "blocks": [
+          {
+            "id": "lead1",
+            "type": "not",
+            "params": {}
+          },
+          {
+            "id": "np1",
+            "type": "not",
+            "params": {}
+          },
+          {
+            "id": "np2",
+            "type": "not",
+            "params": {}
+          },
+          {
+            "id": "ne",
+            "type": "not",
+            "params": {}
+          },
+          {
+            "id": "f1c",
+            "type": "and",
+            "params": {}
+          },
+          {
+            "id": "f1d",
+            "type": "on_delay",
+            "params": {
+              "delay_s": "$proof_delay"
+            }
+          },
+          {
+            "id": "f1",
+            "type": "latch",
+            "params": {}
+          },
+          {
+            "id": "f2c",
+            "type": "and",
+            "params": {}
+          },
+          {
+            "id": "f2d",
+            "type": "on_delay",
+            "params": {
+              "delay_s": "$proof_delay"
+            }
+          },
+          {
+            "id": "f2",
+            "type": "latch",
+            "params": {}
+          },
+          {
+            "id": "nf1",
+            "type": "not",
+            "params": {}
+          },
+          {
+            "id": "nf2",
+            "type": "not",
+            "params": {}
+          },
+          {
+            "id": "a1",
+            "type": "and",
+            "params": {}
+          },
+          {
+            "id": "b1",
+            "type": "and",
+            "params": {}
+          },
+          {
+            "id": "o1",
+            "type": "or",
+            "params": {}
+          },
+          {
+            "id": "p1",
+            "type": "and",
+            "params": {}
+          },
+          {
+            "id": "a2",
+            "type": "and",
+            "params": {}
+          },
+          {
+            "id": "b2",
+            "type": "and",
+            "params": {}
+          },
+          {
+            "id": "o2",
+            "type": "or",
+            "params": {}
+          },
+          {
+            "id": "p2",
+            "type": "and",
+            "params": {}
+          },
+          {
+            "id": "bc",
+            "type": "and",
+            "params": {}
+          },
+          {
+            "id": "bd",
+            "type": "on_delay",
+            "params": {
+              "delay_s": "$proof_delay"
+            }
+          }
+        ],
+        "wires": [
+          [
+            "lead1.out",
+            "f1c.b"
+          ],
+          [
+            "np1.out",
+            "f1c.c"
+          ],
+          [
+            "f1c.out",
+            "f1d.in"
+          ],
+          [
+            "f1d.out",
+            "f1.set"
+          ],
+          [
+            "ne.out",
+            "f1.reset"
+          ],
+          [
+            "np2.out",
+            "f2c.c"
+          ],
+          [
+            "f2c.out",
+            "f2d.in"
+          ],
+          [
+            "f2d.out",
+            "f2.set"
+          ],
+          [
+            "ne.out",
+            "f2.reset"
+          ],
+          [
+            "f1.out",
+            "nf1.in"
+          ],
+          [
+            "f2.out",
+            "nf2.in"
+          ],
+          [
+            "lead1.out",
+            "a1.a"
+          ],
+          [
+            "nf1.out",
+            "a1.b"
+          ],
+          [
+            "f2.out",
+            "b1.b"
+          ],
+          [
+            "a1.out",
+            "o1.a"
+          ],
+          [
+            "b1.out",
+            "o1.b"
+          ],
+          [
+            "o1.out",
+            "p1.b"
+          ],
+          [
+            "nf2.out",
+            "a2.b"
+          ],
+          [
+            "lead1.out",
+            "b2.a"
+          ],
+          [
+            "f1.out",
+            "b2.b"
+          ],
+          [
+            "a2.out",
+            "o2.a"
+          ],
+          [
+            "b2.out",
+            "o2.b"
+          ],
+          [
+            "o2.out",
+            "p2.b"
+          ],
+          [
+            "np1.out",
+            "bc.b"
+          ],
+          [
+            "np2.out",
+            "bc.c"
+          ],
+          [
+            "bc.out",
+            "bd.in"
+          ]
+        ],
+        "inputs": {
+          "enable": [
+            "ne.in",
+            "f1c.a",
+            "f2c.a",
+            "p1.a",
+            "p2.a",
+            "bc.a"
+          ],
+          "proof1": [
+            "np1.in"
+          ],
+          "proof2": [
+            "np2.in"
+          ],
+          "pump2_lead": [
+            "lead1.in",
+            "f2c.b",
+            "b1.a",
+            "a2.a"
+          ]
+        },
+        "defaults": {
+          "proof1": true,
+          "proof2": true,
+          "pump2_lead": false
+        },
+        "outputs": {
+          "pump1": "p1.out",
+          "pump2": "p2.out",
+          "pump1_fail": "f1.out",
+          "pump2_fail": "f2.out",
+          "both_fail": "bd.out"
+        }
+      }
+    },
+    "fan_proof": {
+      "label": "Fan with Proof",
+      "category": "HVAC",
+      "description": "Fan start/stop with status proof: no proof within the delay fails the fan (it stops) until the command goes off.",
+      "inputs": [
+        {
+          "id": "command",
+          "label": "Command",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "id": "status",
+          "label": "Status",
+          "type": "boolean",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "run",
+          "label": "Run",
+          "type": "boolean"
+        },
+        {
+          "id": "fail",
+          "label": "Fail",
+          "type": "boolean"
+        }
+      ],
+      "params": [
+        {
+          "id": "proof_delay",
+          "label": "Proof delay (s)",
+          "kind": "number",
+          "default": 30
+        }
+      ],
+      "macro": {
+        "blocks": [
+          {
+            "id": "ns",
+            "type": "not",
+            "params": {}
+          },
+          {
+            "id": "fc",
+            "type": "and",
+            "params": {}
+          },
+          {
+            "id": "fd",
+            "type": "on_delay",
+            "params": {
+              "delay_s": "$proof_delay"
+            }
+          },
+          {
+            "id": "nc",
+            "type": "not",
+            "params": {}
+          },
+          {
+            "id": "fail",
+            "type": "latch",
+            "params": {}
+          },
+          {
+            "id": "nf",
+            "type": "not",
+            "params": {}
+          },
+          {
+            "id": "run",
+            "type": "and",
+            "params": {}
+          }
+        ],
+        "wires": [
+          [
+            "ns.out",
+            "fc.b"
+          ],
+          [
+            "fc.out",
+            "fd.in"
+          ],
+          [
+            "fd.out",
+            "fail.set"
+          ],
+          [
+            "nc.out",
+            "fail.reset"
+          ],
+          [
+            "fail.out",
+            "nf.in"
+          ],
+          [
+            "nf.out",
+            "run.b"
+          ]
+        ],
+        "inputs": {
+          "command": [
+            "fc.a",
+            "nc.in",
+            "run.a"
+          ],
+          "status": [
+            "ns.in"
+          ]
+        },
+        "defaults": {
+          "status": true
+        },
+        "outputs": {
+          "run": "run.out",
+          "fail": "fail.out"
+        }
+      }
+    },
+    "freeze_protection": {
+      "label": "Freeze Protection",
+      "category": "HVAC",
+      "description": "Low limit (freezestat): temperature below the limit for the delay trips, held until Reset.",
+      "inputs": [
+        {
+          "id": "temp",
+          "label": "Temperature",
+          "type": "number",
+          "required": true
+        },
+        {
+          "id": "reset",
+          "label": "Reset",
+          "type": "boolean",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "trip",
+          "label": "Trip",
+          "type": "boolean"
+        }
+      ],
+      "params": [
+        {
+          "id": "limit",
+          "label": "Low limit",
+          "kind": "number",
+          "default": 38
+        },
+        {
+          "id": "delay_s",
+          "label": "Delay (s)",
+          "kind": "number",
+          "default": 5
+        }
+      ],
+      "macro": {
+        "blocks": [
+          {
+            "id": "lim",
+            "type": "constant",
+            "params": {
+              "value_type": "number",
+              "value": "$limit",
+              "unit": ""
+            }
+          },
+          {
+            "id": "low",
+            "type": "compare",
+            "params": {
+              "op": "<"
+            }
+          },
+          {
+            "id": "d",
+            "type": "on_delay",
+            "params": {
+              "delay_s": "$delay_s"
+            }
+          },
+          {
+            "id": "trip",
+            "type": "latch",
+            "params": {}
+          }
+        ],
+        "wires": [
+          [
+            "lim.value",
+            "low.b"
+          ],
+          [
+            "low.out",
+            "d.in"
+          ],
+          [
+            "d.out",
+            "trip.set"
+          ]
+        ],
+        "inputs": {
+          "temp": [
+            "low.a"
+          ],
+          "reset": [
+            "trip.reset"
+          ]
+        },
+        "defaults": {
+          "reset": false
+        },
+        "outputs": {
+          "trip": "trip.out"
+        }
+      }
     }
   },
   "t3_models": {

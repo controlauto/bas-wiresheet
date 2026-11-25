@@ -22,6 +22,7 @@ spec.loader.exec_module(rp)
 
 NODE = r"""
 const RT = require(process.argv[1]);
+RT.setMacroCatalog(require(require('path').join(require('path').dirname(process.argv[1]), 'blocks.json')).blocks);
 let data = ''; process.stdin.on('data', (c) => data += c); process.stdin.on('end', () => {
   const sc = JSON.parse(data); const rt = RT.createRuntime(sc.sheet); const out = [];
   for (const step of sc.steps) {
@@ -230,3 +231,60 @@ def test_unwired_blocks_match_between_runtimes():
             for port in ja["outputs"]:
                 compare_val(ja["outputs"][port], pa["outputs"][port], f"{t} tick {n} {port}")
             assert a["displays"].keys() == c["displays"].keys(), t
+
+
+CAT_BLOCKS = json.loads((ROOT / "custom_components" / "bas_wiresheet" / "runtime" / "blocks.json").read_text())["blocks"]
+MACROS = sorted(t for t, d in CAT_BLOCKS.items() if d.get("macro"))
+
+
+def macro_sheet(typ: str, rng: random.Random) -> dict:
+    d = CAT_BLOCKS[typ]
+    blocks = [{"id": "m", "type": typ, "position": {"x": 0, "y": 0}, "params": {p["id"]: p["default"] for p in d["params"]}}]
+    wires = []
+    for n, ip in enumerate(d["inputs"]):
+        if not ip.get("required") and rng.random() < 0.3:
+            continue  # leave optional inputs to their defaults sometimes
+        vt = "boolean" if ip["type"] == "boolean" else "number"
+        blocks.append({"id": f"i{n}", "type": "entity_input", "position": {"x": 0, "y": 0},
+                       "params": {"entity_id": f"sensor.m_{ip['id']}", "value_type": vt, "sample_evidence": "changes_only", "rest_values": []}})
+        wires.append({"id": f"wi{n}", "from": {"block": f"i{n}", "port": "value"}, "to": {"block": "m", "port": ip["id"]}})
+    for n, op in enumerate(d["outputs"]):
+        blocks.append({"id": f"d{n}", "type": "status_display", "position": {"x": 0, "y": 0}, "params": {"label": op["id"]}})
+        wires.append({"id": f"wo{n}", "from": {"block": "m", "port": op["id"]}, "to": {"block": f"d{n}", "port": "in"}})
+    return {"schema": "bas-wiresheet/1", "id": "macro", "name": "macro", "mode": "monitoring", "revision": 1, "blocks": blocks, "wires": wires}
+
+
+@pytest.mark.parametrize("typ", MACROS)
+@pytest.mark.parametrize("seed", range(4))
+def test_hvac_blocks_same_in_python_and_javascript(typ, seed):
+    rng = random.Random(f"{typ}{seed}")
+    sheet = macro_sheet(typ, rng)
+    steps = make_steps(rng, sheet)
+    js, py = run_js(sheet, steps), run_py(sheet, steps)
+    for n, (a, b) in enumerate(zip(js, py)):
+        assert a["blocks"].keys() == b["blocks"].keys(), (typ, n)
+        assert a["blocks"]["m"]["outputs"].keys() == {o["id"] for o in CAT_BLOCKS[typ]["outputs"]}, "the HVAC block shows its outputs"
+        for bid in a["blocks"]:
+            for port in a["blocks"][bid]["outputs"]:
+                compare_val(a["blocks"][bid]["outputs"][port], b["blocks"][bid]["outputs"][port], f"{typ} tick {n} {bid}.{port}")
+        for did in a["displays"]:
+            compare_val(a["displays"][did]["value"], b["displays"][did]["value"], f"{typ} tick {n} display {did}")
+        for wid in a["wires"]:
+            compare_val(a["wires"][wid], b["wires"][wid], f"{typ} tick {n} wire {wid}")
+
+
+def test_hvac_expansion_same_in_python_and_javascript():
+    import importlib.util as iu
+    spec_ = iu.spec_from_file_location("bws_macros_t", PKG / "macros.py")
+    mm = iu.module_from_spec(spec_)
+    spec_.loader.exec_module(mm)
+    rng = random.Random(3)
+    for typ in MACROS:
+        sheet = macro_sheet(typ, rng)
+        flat, origin, outputs, issues = mm.expand(sheet)
+        prog = ("const RT=require(process.argv[1]);const cat=require(require('path').join(require('path').dirname(process.argv[1]),'blocks.json')).blocks;"
+                "const r=RT.expandMacros(JSON.parse(process.argv[2]),cat);console.log(JSON.stringify(r));")
+        out = subprocess.run(["node", "-e", prog, str(PKG / "runtime" / "runtime.js"), json.dumps(sheet)], capture_output=True, text=True, check=True)
+        j = json.loads(out.stdout)
+        assert j["sheet"] == json.loads(json.dumps(flat)), typ
+        assert j["origin"] == origin and j["outputs"] == {k: {p: list(v) for p, v in o.items()} for k, o in outputs.items()} and j["issues"] == issues, typ

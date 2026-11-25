@@ -41,7 +41,7 @@ and TEMCO controllers on **BACnet MS/TP** behind a BACnet router are supported.
 - **Discovery**: Who-Is through the BACnet/IP integration; TEMCO controllers on BACnet/IP and MS/TP.
 
 **Wire sheets**
-- 40 blocks in 10 families, each with its own colour and symbol: inputs, T3000 points, logic (AND, OR, NOT, XOR, SR latch,
+- 48 blocks in 11 families, each with its own colour and symbol: inputs, T3000 points, logic (AND, OR, NOT, XOR, SR latch,
   edge pulse), math (add … moving average, rate of change, counter), control (limit, scale, hysteresis, select, PI,
   rate limit), timers, Modbus, data quality (freshness), alarms (range check, alarm with delay and severity) and displays.
 - **Modbus Read / Modbus Write** blocks for any Modbus RTU device (meters, drives, other brands) on a controller port in
@@ -50,6 +50,11 @@ and TEMCO controllers on **BACnet MS/TP** behind a BACnet router are supported.
 - Edge Pulse, Counter and Alarm also run on the controller. Moving Average, Rate of Change and Rate Limit need a sample
   history and are offered on monitoring sheets only. Each controller block is checked in T3000's interpreter against the
   browser runtime.
+- **HVAC application blocks**: Economizer, Heating Valve, Cooling Valve, Outdoor Air Reset, Heat Exchanger (steam/HW
+  with reset, heat request, pump post-run and proven-pump valve enable), Lead/Lag Pumps (failover, held failures, both
+  failed alarm), Fan with Proof and Freeze Protection. Each is a small circuit of basic blocks defined once in
+  `blocks.json`, so it runs the same in the browser, Node-RED, Home Assistant and compiled on a T3000 controller; every
+  output is checked in T3000's interpreter and with engineering scenarios (`tests/hvac.test.js`).
 - **Make Editable**: a sheet generated from a controller program becomes an editable copy that can be sent back. Work
   variables are picked automatically (VARs no program on the controller uses); intermediate values live in program-local
   variables. The copy is compiled back the way the program was written (IF … THEN point = value, in program order,

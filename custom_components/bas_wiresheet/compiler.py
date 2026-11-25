@@ -157,6 +157,8 @@ def compile_sheet(sheet: dict, *, server_id: str, revision: int | None = None) -
     """Return the Node-RED nodes (tab first) for the sheet."""
     if sheet.get("mode", "monitoring") != "monitoring":
         raise ValueError("Only monitoring sheets can be deployed to Node-RED")
+    from . import macros
+    sheet = macros.expand(sheet)[0]  # Node-RED runs the basic blocks an HVAC block is made of
     sid = sheet["id"]
     rev = revision if revision is not None else sheet.get("revision")
     sheet_for_rt = dict(sheet)
