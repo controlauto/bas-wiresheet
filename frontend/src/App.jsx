@@ -45,6 +45,16 @@ export const BLOCK_ICON = {
   limit: "⊓", scale: "⤢", hysteresis: "⌇", select: "⇋", pi: "PI", counter: "Σn", average: "x̄", rate: "Δ/t", ramp: "⟋",
   economizer: "≋", heating_valve: "♨", cooling_valve: "❄", oa_reset: "⟍", hx_steam: "⇌", lead_lag_pumps: "⟳⟳", fan_proof: "✣", freeze_protection: "❆",
 };
+/* Blocks that run only on one kind of sheet (shown everywhere, marked elsewhere). */
+const T3_ONLY = ["t3_read", "t3_write", "t3_panel_in", "t3_panel_out", "modbus_read", "modbus_write", "cb_local_read", "cb_local_write"];
+const MONITORING_ONLY = ["entity_input", "data_freshness", "average", "rate", "ramp"];
+function libOnly(type, mode) {
+  if (type === "cb_unmapped") return "Generated sheets only";
+  if (mode === "t3000" && MONITORING_ONLY.includes(type)) return "Monitoring sheets only";
+  if (mode !== "t3000" && T3_ONLY.includes(type)) return "T3000 sheets only";
+  return null;
+}
+
 function fmtPortValue(o) {
   if (!o) return null;
   if (o.q !== "good") return { text: o.q === "no_telemetry" ? "—" : o.q === "unavailable" ? "n/a" : "?", cls: "bad" };
@@ -1011,22 +1021,22 @@ function Editor({ hass, boot, initialSheet }) {
             <div className="pane-h">Block Library</div>
             <input className="lib-search" placeholder="Search blocks" value={libFilter} onChange={(e) => setLibFilter(e.target.value)} data-testid="lib-search" />
             {catalog.categories.map((cat) => {
-              const items = Object.entries(catalog.blocks).filter(([t, d]) => d.category === cat && (!(meta && meta.mode === "t3000") || !["entity_input", "data_freshness", "average", "rate", "ramp"].includes(t))
-                && (!(meta && meta.mode !== "t3000") || !["t3_read", "t3_write", "t3_panel_in", "t3_panel_out", "modbus_read", "modbus_write", "cb_local_read", "cb_local_write"].includes(t))
-                && t !== "cb_unmapped" // only in sheets generated from a controller program
+              // every block is always listed; one that cannot run on this kind of sheet is dimmed and says why
+              const items = Object.entries(catalog.blocks).filter(([t, d]) => d.category === cat
                 && (!libFilter || `${d.label} ${d.description} ${cat}`.toLowerCase().includes(libFilter.toLowerCase())));
               if (!items.length) return null;
               return (
               <div key={cat} className="lib-cat" style={{ "--cat": (CATEGORY_STYLE[cat] || {}).color }}>
                 <div className="lib-cat-h"><span className="lib-dot" />{cat}</div>
-                {items.map(([t, d]) => (
-                  <div key={t} className={`lib-item ${readOnly ? "dis" : ""}`} draggable={!readOnly} title={d.description}
+                {items.map(([t, d]) => { const only = libOnly(t, meta && meta.mode); return (
+                  <div key={t} className={`lib-item ${readOnly ? "dis" : ""} ${only ? "elsewhere" : ""}`} draggable={!readOnly} title={only ? `${only}. ${d.description}` : d.description}
                     onDragStart={(e) => { e.dataTransfer.setData("application/x-bas-block", t); e.dataTransfer.effectAllowed = "move"; }}
                     onDoubleClick={() => !readOnly && addBlock(t, rf.screenToFlowPosition({ x: 500, y: 300 }))} data-testid={`lib-${t}`}>
                     <span className="lib-icon">{BLOCK_ICON[t] || "■"}</span><span className="lib-label">{d.label}</span>
+                    {only && <span className="lib-only" data-testid={`lib-only-${t}`}>{only}</span>}
                     <span className="lib-desc">{d.description}</span>
                   </div>
-                ))}
+                ); })}
               </div>
               );
             })}

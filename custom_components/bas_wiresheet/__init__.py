@@ -168,6 +168,8 @@ def _apply_conf(hass: HomeAssistant, conf: dict) -> None:
 async def _async_setup_core(hass: HomeAssistant, conf: dict, config: ConfigType) -> bool:
     await hass.async_add_executor_job(load_catalog)
     await hass.async_add_executor_job(load_runtime)
+    from . import macros as _macros
+    await hass.async_add_executor_job(_macros.catalog)  # HVAC block definitions, read once outside the event loop
     repo = SheetRepository(hass)
     await repo.async_load()
     data: dict[str, Any] = {

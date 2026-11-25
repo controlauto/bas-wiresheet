@@ -256,3 +256,5 @@ pre.diff { max-height: 260px; overflow: auto; }
 .warn-txt { color: var(--dq); }
 /* operator turned the integration's restrictions off: no typed confirmations */
 .no-confirm label:has(input[data-confirm]) { display: none; }
+.lib-item.elsewhere { opacity: .55; border-left-style: dashed; }
+.lib-only { display: inline-block; margin-left: 6px; font-size: 9px; text-transform: uppercase; letter-spacing: .06em; color: var(--dq); border: 1px solid var(--dq); border-radius: 2px; padding: 0 4px; }
