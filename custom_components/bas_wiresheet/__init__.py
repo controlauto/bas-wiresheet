@@ -265,7 +265,7 @@ async def _async_setup_core(hass: HomeAssistant, conf: dict, config: ConfigType)
         require_admin=False,
         config={"version": VERSION},
     )
-    for handler in (ws_catalog, ws_config_info, ws_t3_make_editable, ws_t3_probe, ws_t3_add_direct, ws_list, ws_get, ws_validate, ws_save_draft, ws_import, ws_commit, ws_restore,
+    for handler in (ws_catalog, ws_config_info, ws_t3_make_editable, ws_t3_probe, ws_t3_add_direct, ws_t3_slot_control, ws_list, ws_get, ws_validate, ws_save_draft, ws_import, ws_commit, ws_restore,
                     ws_deploy_preview, ws_deploy, ws_rollback, ws_target_status, ws_subscribe_live, ws_push_result,
                     ws_t3_devices, ws_t3_points, ws_t3_compile, ws_delete_sheet, ws_t3_program_list, ws_t3_program_read,
                     ws_t3_upload_plan, ws_t3_upload_apply, ws_t3_program_control, ws_t3_program_to_sheet, ws_t3_prog_file,
@@ -1208,7 +1208,7 @@ async def ws_t3_monitors(hass, connection, msg):
 
 
 @websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_point_values", vol.Required("instance"): int,
-                                  vol.Required("points"): vol.All([vol.All(str, vol.Upper, vol.Match(r"^(IN|OUT|VAR)[1-9]\d{0,2}$"))], vol.Length(max=60))})
+                                  vol.Required("points"): vol.All([vol.All(str, vol.Upper, vol.Match(r"^(IN|OUT|VAR)[1-9]\d{0,2}$"))], vol.Length(max=320))})
 @websocket_api.async_response
 async def ws_t3_point_values(hass, connection, msg):
     """Read only: current value, auto/manual and label of the listed points, straight from the controller."""
@@ -1217,12 +1217,7 @@ async def ws_t3_point_values(hass, connection, msg):
     def read(client):
         if client.identify() != instance:
             raise t3000_bacnet.UploadRefused("Wrong controller at this address")
-        out = {}
-        for name in dict.fromkeys(msg["points"]):
-            kind = re.match(r"^(IN|OUT|VAR)", name).group(1)
-            d = t3000_points.decode(kind, t3000_points.read_struct(client, kind, int(name[len(kind):])))
-            out[name] = {"value": d["value"], "digital": d["digital_analog"] == "digital", "manual": d["auto_manual"] == "manual", "label": d["label"]}
-        return out
+        return t3000_points.read_values(client, msg["points"])
 
     try:
         cfg = _t3_require(hass, instance)
@@ -1671,6 +1666,44 @@ async def ws_t3_program_list(hass, connection, msg):
         connection.send_error(msg["id"], "t3000", str(err))
         return
     connection.send_result(msg["id"], {"programs": programs, "caps": _t3_caps(cfg)})
+
+
+@websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_slot_control", vol.Required("instance"): int,
+                                  vol.Required("slot"): vol.All(int, vol.Range(min=1, max=16)), vol.Required("action"): vol.In(["start", "stop", "remove"]),
+                                  vol.Optional("confirm", default=""): str})
+@websocket_api.async_response
+async def ws_t3_slot_control(hass, connection, msg):
+    """Start, stop or remove whatever program is in a slot (not only one this panel loaded)."""
+    if not _require_editor(hass, connection, msg):
+        return
+    instance, slot, action = msg["instance"], msg["slot"], msg["action"]
+    if action == "remove" and not _confirmed(hass, msg.get("confirm"), f"PROGRAM {slot}"):
+        connection.send_error(msg["id"], "confirm", f"Type PROGRAM {slot} to confirm")
+        return
+
+    def run(client):
+        if action == "start":
+            code = client.read_code(slot - 1)
+            used = t3000_bacnet.code_used_length(code)
+            if not used:
+                raise t3000_bacnet.UploadRefused(f"Program {slot} is empty")
+            return t3000_bacnet.start_program(client, instance, slot, hashlib.sha256(code[:used]).hexdigest())
+        if action == "stop":
+            return t3000_bacnet.stop_program(client, instance, slot)
+        return t3000_bacnet.remove_program(client, instance, slot)
+
+    try:
+        cfg = _t3_require(hass, instance, slot)
+        result = await _t3_run(hass, instance, cfg, run)
+    except T3_ERRORS as err:
+        await _repo(hass).add_audit({"by": _user_label(connection), "action": f"program_{action}", "target": f"t3000:{instance}:{slot}", "ok": False,
+                                     "detail": f"Program {slot} {action} failed: {err}"})
+        connection.send_error(msg["id"], "t3000", str(err))
+        return
+    await _panel_changed(hass, instance, slot)
+    await _repo(hass).add_audit({"by": _user_label(connection), "action": f"program_{action}", "target": f"t3000:{instance}:{slot}", "ok": True,
+                                 "detail": f"Program {slot} {action}"})
+    connection.send_result(msg["id"], result)
 
 
 @websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_program_read", vol.Required("instance"): int,

@@ -487,6 +487,93 @@ def _layout(blocks: list[dict], wires: list[dict]) -> None:
         b.pop("_line", None)
 
 
+class _Paths:
+    """Reachability of program lines as sets of disjoint path cases.
+
+    Each conditional jump splits the current case set into two exclusive children (condition true / false), evaluated
+    once at the jump. When both children of a split meet again (the branches of an IF … GOTO merge), they are replaced
+    by their parent, so a line every path reaches is reached exactly when the split point was (always, at the top).
+    Without this, a merge point carried an OR of every branch, which is always true, and every later line kept it.
+    Conditions become blocks only when a line needs them."""
+    ALWAYS = frozenset({0})
+    NEVER: frozenset = frozenset()
+
+    def __init__(self, graph):
+        self.g = graph
+        self.parent: dict[int, int] = {}
+        self.kids: dict[int, tuple[int, int]] = {}
+        self.cond: dict[int, tuple[Any, bool]] = {}  # node -> (condition ref, value on this side)
+        self.comp: dict[int, frozenset] = {}  # node created for a set of several cases
+        self.refs: dict[Any, Any] = {}
+        self.n = 1
+
+    def snapshot(self):
+        return dict(self.refs)
+
+    def restore(self, refs) -> None:
+        self.refs = refs
+
+    def _expand(self, node: int) -> frozenset:
+        return self.comp.get(node, frozenset({node}))
+
+    def norm(self, cases) -> frozenset:
+        cases = set(cases)
+        changed = True
+        while changed:
+            changed = False
+            for p, (a, b) in self.kids.items():
+                if a in cases and b in cases:
+                    cases -= {a, b}
+                    cases |= self._expand(p)
+                    changed = True
+        return frozenset(cases)
+
+    def union(self, a: frozenset, b: frozenset) -> frozenset:
+        return self.norm(a | b)
+
+    def split(self, cases: frozenset, cond) -> tuple[frozenset, frozenset]:
+        if not cases:
+            return cases, cases
+        if len(cases) == 1:
+            p = next(iter(cases))
+        else:
+            p = self.n
+            self.n += 1
+            self.comp[p] = cases
+        a, b = self.n, self.n + 1
+        self.n += 2
+        self.parent[a] = self.parent[b] = p
+        self.kids[p] = (a, b)
+        self.cond[a], self.cond[b] = (cond, True), (cond, False)
+        return frozenset({a}), frozenset({b})
+
+    def _node_ref(self, node: int):
+        if node == 0:
+            return True
+        if node in self.comp:
+            return self.ref(self.comp[node])
+        key = ("n", node)
+        if key not in self.refs:
+            c, side = self.cond[node]
+            self.refs[key] = self.g.both(self._node_ref(self.parent[node]), c if side else self.g.negate(c))
+        return self.refs[key]
+
+    def ref(self, cases: frozenset):
+        """True (always), False (never) or the boolean block output of this case set."""
+        if not cases:
+            return False
+        if cases == self.ALWAYS:
+            return True
+        if len(cases) == 1:
+            return self._node_ref(next(iter(cases)))
+        if cases not in self.refs:
+            out = False
+            for node in sorted(cases):
+                out = self.g.either(out, self._node_ref(node))
+            self.refs[cases] = out
+        return self.refs[cases]
+
+
 def code_to_sheet(code: bytes, listing: str, *, sheet_id: str, name: str, instance: int, slot: int, labels: dict[str, str] | None = None,
                   faceplates: bool = False, model: str | None = None) -> dict:
     """Return {'sheet', 'report'}. Never raises for unsupported code: those lines become Unmapped Code blocks.
@@ -508,7 +595,8 @@ def code_to_sheet(code: bytes, listing: str, *, sheet_id: str, name: str, instan
     spans, unmapped, mapped = _line_spans(code, listing), [], 0
     dirty: set[str] = set()
     index_at = {start: i for i, (_, start, _, _) in enumerate(spans)}
-    guard: Any = True
+    paths = _Paths(graph)
+    guard: frozenset = paths.ALWAYS
     pending: dict[int, list] = {}
     rems: list[dict] = []
 
@@ -520,36 +608,37 @@ def code_to_sheet(code: bytes, listing: str, *, sheet_id: str, name: str, instan
 
     for idx, (num, start, stop, text) in enumerate(spans):
         for cond in pending.pop(idx, []):
-            guard = graph.either(guard, cond)
+            guard = paths.union(guard, cond)
         body = re.sub(r"^\d+\s*", "", text)
         if body.upper().startswith("REM"):
             rems.append({"seq": [num, graph.n], "text": body.rstrip()})  # comments come back in place in an editable copy
             continue
-        if guard is False:
+        if not guard:
             mapped += 1
             continue
         graph.line, graph.reads, graph.consts = num, {}, {}  # each line gets its own read and constant blocks
-        saved = (dict(graph.env), len(graph.blocks), len(graph.wires), graph.n, dict(graph.reads), dict(graph.consts), guard, {k: list(v) for k, v in pending.items()})
+        saved = (dict(graph.env), len(graph.blocks), len(graph.wires), graph.n, dict(graph.reads), dict(graph.consts), guard, {k: list(v) for k, v in pending.items()}, paths.snapshot())
         try:
             for st in _statements(code, start, stop, timers, num, table):
-                if guard is False:
+                if not guard:
                     break
                 if st.kind == "end":
-                    guard = False
+                    guard = paths.NEVER
                 elif st.kind == "goto":
                     jump(int(st.target), idx, guard)
-                    guard = False
+                    guard = paths.NEVER
                 elif st.kind == "if" and len(st.then) == 1 and st.then[0].kind in ("goto", "end") and not st.other:
                     c = graph.to_bool(graph.expr(st.expr))
+                    taken, guard = paths.split(guard, c)
                     if st.then[0].kind == "goto":
-                        jump(int(st.then[0].target), idx, graph.both(guard, c))
-                    guard = graph.both(guard, graph.negate(c))
+                        jump(int(st.then[0].target), idx, taken)
                 else:
-                    graph.guarded(st, guard)
+                    graph.guarded(st, paths.ref(guard))
             if body.upper() != "END":
                 mapped += 1
         except (Unsupported, IndexError, struct.error, KeyError) as err:
-            graph.env, n_blocks, n_wires, graph.n, graph.reads, graph.consts, guard, pending = saved
+            graph.env, n_blocks, n_wires, graph.n, graph.reads, graph.consts, guard, pending, refs = saved
+            paths.restore(refs)
             graph.blocks, graph.wires = graph.blocks[:n_blocks], graph.wires[:n_wires]
             graph.block("cb_unmapped", f"Line {num}", code=text)
             unmapped.append({"line": num, "text": text, "reason": str(err)})

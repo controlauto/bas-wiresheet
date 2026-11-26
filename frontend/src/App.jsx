@@ -10,7 +10,7 @@ import {
   qualityLabel, FRESH_CLASS, SCHEMA, t3LiveSnapshot, cloneSelection, nodeTypeOf,
 } from "./model.js";
 import { Faceplate, PANEL_TYPES, TerminalPanel } from "./Faceplate.jsx";
-import { CONFIRM } from "./confirm.js";
+import { CONFIRM, typedOk } from "./confirm.js";
 import SCENARIOS from "./scenarios.js";
 import Explorer from "./Explorer.jsx";
 import { History, TrendChart, buildDocument, SheetRuntime, TemplateDialog } from "./Extras.jsx";
@@ -660,9 +660,39 @@ function Editor({ hass, boot, initialSheet }) {
     if (mode !== MODE.LIVE || !sheet || !meta || meta.mode !== "t3000" || t3Imported) { setT3Build(null); return; }
     ws({ type: "bas_wiresheet/t3_compile", sheet }).then((r) => setT3Build(r)).catch(() => setT3Build(null));
   }, [mode, sheetId, t3Imported]); // eslint-disable-line
-  const t3Live = useMemo(() => (mode === MODE.LIVE && meta && meta.mode === "t3000" && t3Points && sheet
-    ? { data: t3LiveSnapshot(sheet, t3Points, Date.now(), RT, t3Ctl, t3Build && t3Build.state_map, t3Build && t3Build.logic), received_at: Date.now() } : null),
-  [mode, meta, t3Points, sheet, t3Ctl, t3Build]);
+  // Live values of points that have no Home Assistant entity (for example a controller added by IP): read straight
+  // from the controller every 5 s (read only) and used like the entity values
+  const sheetPoints = useMemo(() => {
+    if (!sheet || sheet.mode !== "t3000") return [];
+    const flat = RT.expandPanels(RT.expandMacros(sheet).sheet).sheet;
+    return [...new Set(flat.blocks.filter((b) => (b.type === "t3_read" || b.type === "t3_write") && b.params && b.params.point)
+      .map((b) => String(b.params.point).toUpperCase()))];
+  }, [sheet]);
+  const [ctlRows, setCtlRows] = useState(null);
+  useEffect(() => {
+    setCtlRows(null);
+    if (mode !== MODE.LIVE || !t3Instance || !t3Points) return undefined;
+    const have = new Set(t3Points.map((r) => `${r.category}${r.index}`));
+    const missing = sheetPoints.filter((p) => !have.has(p));
+    if (!missing.length) return undefined;
+    let stop = false;
+    const load = () => ws({ type: "bas_wiresheet/t3_point_values", instance: t3Instance, points: missing.slice(0, 320) }).then((r) => {
+      if (stop) return;
+      setCtlRows(Object.entries(r.values).map(([name, v]) => {
+        const m = /^(IN|OUT|VAR)(\d+)$/.exec(name);
+        return { category: m[1], index: Number(m[2]), value: v.digital ? (v.value ? "on" : "off") : v.value, units: v.digital ? "" : v.units, label: v.label,
+          auto_manual: v.manual ? "Manual" : "Auto", freshness: "Fresh", freshness_reason: "Read from the controller", entity_id: null,
+          last_reported: r.at * 1000, last_changed: null, source: "controller" };
+      }));
+    }).catch((e) => { if (!stop) setCtlRows([]); notify(`Live values from the controller: ${e.message}`, "bad"); });
+    load();
+    const h = setInterval(load, 5000);
+    return () => { stop = true; clearInterval(h); };
+  }, [mode, t3Instance, t3Points && t3Points.length, sheetPoints.join(","), ws]); // eslint-disable-line
+  const livePoints = useMemo(() => (t3Points ? [...t3Points, ...(ctlRows || [])] : null), [t3Points, ctlRows]);
+  const t3Live = useMemo(() => (mode === MODE.LIVE && meta && meta.mode === "t3000" && livePoints && sheet
+    ? { data: t3LiveSnapshot(sheet, livePoints, Date.now(), RT, t3Ctl, t3Build && t3Build.state_map, t3Build && t3Build.logic), received_at: Date.now() } : null),
+  [mode, meta, livePoints, sheet, t3Ctl, t3Build]);
 
   const sim = useSimulation(sheet || { blocks: [], wires: [] }, mode === MODE.SIM && !!sheet);
 
@@ -1009,7 +1039,7 @@ function Editor({ hass, boot, initialSheet }) {
             {sheet && sheet.mode === "t3000" && imported && role === "editor" && <button className="btn primary" onClick={() => setDialog({ kind: "editable" })} title="Make an editable copy of this generated sheet that can be sent to the controller" data-testid="make-editable">Make Editable</button>}
             {sheet && sheet.mode === "t3000" && <button className="btn" disabled={imported} title={imported ? "Generated from a controller program: documentation only" : ""} onClick={() => setDialog({ kind: "t3compile" })} data-testid="t3-compile">Compile T3000</button>}
             {sheet && sheet.mode === "t3000" && <button className="btn primary send" disabled={imported || sheetLocked || mode !== MODE.EDIT || errors.length > 0} title={imported ? "Generated from a controller program: documentation only" : errors.length ? "Fix validation errors first" : "Save, compile and load this sheet to its controller in one step"} onClick={() => setDialog({ kind: "send" })} data-testid="t3-send">Send to Controller</button>}
-            {sheet && sheet.mode === "t3000" && <button className="btn" disabled={!latestRev || imported || sheetLocked} title={imported ? "Generated from a controller program: documentation only" : latestRev ? "" : "Save a revision first"} onClick={() => setDialog({ kind: "t3upload", rev: latestRev })} data-testid="t3-upload">Controller…</button>}
+            {sheet && sheet.mode === "t3000" && <button className="btn" disabled={sheetLocked || !t3Instance} title="Program status on the controller: start, stop, remove, send" onClick={() => setDialog({ kind: "t3upload" })} data-testid="t3-upload">Controller…</button>}
             <button className="btn" disabled={!sheet || sheetLocked} onClick={() => setDialog({ kind: "delete" })} data-testid="delete-sheet">Delete Sheet</button>
           </>}
           <span className="grow" />
@@ -1096,7 +1126,7 @@ function Editor({ hass, boot, initialSheet }) {
         {sheet && mode !== MODE.EDIT && (
           <div className="bottom">
             {mode === MODE.SIM && <SimPanel sim={sim} sheet={sheet} />}
-            {mode === MODE.LIVE && meta && meta.mode === "t3000" && <div className="muted small pad" data-testid="t3-live-note">Point values come from the controller through Home Assistant and logic between blocks is recalculated from them. Timers, latches, PI and local variables are read from the running controller program every 10 s (read only) when it matches this sheet; otherwise they show No Telemetry.</div>}
+            {mode === MODE.LIVE && meta && meta.mode === "t3000" && <div className="muted small pad" data-testid="t3-live-note">Point values come from the controller through Home Assistant (points without an entity are read straight from the controller every 5 s) and logic between blocks is recalculated from them. Timers, latches, PI and local variables are read from the running controller program every 10 s (read only) when it matches this sheet; otherwise they show No Telemetry.</div>}
             {mode === MODE.LIVE && !liveOk && <div className="notel pad">No Telemetry: no result from the Node-RED runtime for this sheet{liveNow ? ` (last ${fmtAge(now - liveNow.received_at)} ago)` : ""}. Deploy a revision to the test runtime to monitor.</div>}
             <PointsTable sheet={sheet} snapshot={snapshot} equipment={equipment} />
           </div>
@@ -1115,7 +1145,8 @@ function Editor({ hass, boot, initialSheet }) {
             onDeploy={(rev) => setDialog({ kind: "deploy", rev })} />
         )}
         {dialog && dialog.kind === "send" && <SendDialog ws={ws} sheet={sheet} dirty={dirty} onSaved={async () => { setDirty(false); await refreshList(); setInfo(await ws({ type: "bas_wiresheet/get", sheet_id: sheetId })); }} onClose={() => setDialog(null)} onDone={async () => setInfo(await ws({ type: "bas_wiresheet/get", sheet_id: sheetId }))} />}
-        {dialog && dialog.kind === "t3upload" && <T3UploadDialog ws={ws} sheetId={sheetId} rev={dialog.rev} info={info} onClose={() => setDialog(null)} onChanged={async () => setInfo(await ws({ type: "bas_wiresheet/get", sheet_id: sheetId }))} />}
+        {dialog && dialog.kind === "t3upload" && <T3UploadDialog ws={ws} sheetId={sheetId} instance={t3Instance} slot={meta.t3000.program_slot} imported={imported}
+          canSend={!imported && !sheetLocked && errors.length === 0} onSend={() => setDialog({ kind: "send" })} onClose={() => setDialog(null)} onChanged={async () => setInfo(await ws({ type: "bas_wiresheet/get", sheet_id: sheetId }))} />}
         {dialog && dialog.kind === "delete" && <DeleteDialog ws={ws} sheet={sheet} onClose={() => setDialog(null)} onDone={async () => { setDialog(null); const r = await ws({ type: "bas_wiresheet/list" }); await refreshList(); if (r.sheets.length) await loadSheet(r.sheets[0].id); else window.location.reload(); notify("Sheet deleted"); }} />}
         {dialog && dialog.kind === "editable" && <EditableDialog ws={ws} sheet={sheet} onClose={() => setDialog(null)}
           onPick={(bid) => { setDialog(null); setSelection({ kind: "node", id: bid }); const n = nodeById[bid]; if (n) rf.setCenter(n.position.x + 120, n.position.y + 60, { zoom: 1.1, duration: 300 }); }}
@@ -1327,43 +1358,43 @@ function SendDialog({ ws, sheet, dirty, onSaved, onClose, onDone }) {
   );
 }
 
-function T3UploadDialog({ ws, sheetId, rev, info, onClose, onChanged }) {
-  const last = info ? [...info.deployments].reverse().find((d) => d.kind === "t3000") : null;
-  const [status, setStatus] = useState(last ? last.status : null);
-  const [plan, setPlan] = useState(null);
+function T3UploadDialog({ ws, sheetId, instance, slot, imported, canSend, onSend, onClose, onChanged }) {
+  // Reads the slot's real state from the controller (read only) and starts, stops or removes whatever program is in it,
+  // whether it was loaded by this sheet, by Send or by T3000. Loading this sheet goes through Send to Controller.
+  const [st, setSt] = useState(null);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [replace, setReplace] = useState(false);
-  const [ack, setAck] = useState(false);
+  const [typed, setTyped] = useState("");
+  const read = () => ws({ type: "bas_wiresheet/t3_program_read", instance, slot }).then(setSt);
   const act = async (fn) => { setBusy(true); setErr(null); try { await fn(); } catch (e) { setErr(e.message); } setBusy(false); };
-  const doPlan = () => act(async () => { setPlan(await ws({ type: "bas_wiresheet/t3_upload_plan", sheet_id: sheetId, revision: rev, allow_replace: replace })); setAck(false); });
-  const doApply = () => act(async () => { const r = await ws({ type: "bas_wiresheet/t3_upload_apply", token: plan.token }); setPlan(null); await onChanged(); if (r.ok) setStatus("loaded"); else throw new Error(`Upload failed: ${r.error}. Previous program ${r.restored ? "restored" : "NOT restored: " + r.restore_error}`); });
-  const control = (action) => act(async () => { const r = await ws({ type: "bas_wiresheet/t3_program_control", sheet_id: sheetId, action }); setStatus(r.status); await onChanged(); });
-  const loaded = ["loaded", "running", "stopped"].includes(status);
+  useEffect(() => { act(read); }, []); // eslint-disable-line
+  const control = (action) => act(async () => {
+    await ws({ type: "bas_wiresheet/t3_slot_control", instance, slot, action, confirm: typed });
+    setTyped(""); await read(); await onChanged();
+  });
+  const on = st && st.status.on;
   return (
-    <Modal title={`Controller Program · r${rev}`} onClose={onClose}>
+    <Modal title={`Controller ${instance} · Program ${slot}`} onClose={onClose}>
       {err && <div className="errtxt" data-testid="t3-error">{err}</div>}
-      <div className="kv"><span>Status</span><b data-testid="t3-status">{status === "running" ? "Running" : status === "loaded" ? "Loaded, stopped" : status === "stopped" ? "Stopped" : "Not loaded"}</b></div>
-      {!plan && !loaded && <>
-        <label className="field"><span><input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} /> Allow replacing an existing stopped program</span></label>
-        <button className="btn primary" disabled={busy} onClick={doPlan} data-testid="t3-plan">Check Controller</button>
-        <p className="muted small">Checking only reads the controller. Nothing is written.</p>
+      {!st && !err && <div className="muted">Reading the controller…</div>}
+      {st && <>
+        <div className="kv"><span>Status</span><b data-testid="t3-status">{st.empty || !st.used ? "Empty" : on ? "Running" : "Loaded, stopped"}</b></div>
+        <div className="kv"><span>Size</span><b>{st.used} / 2000 bytes</b></div>
+        {st.status.label && <div className="kv"><span>Label</span><b>{st.status.label}</b></div>}
+        <div className="row">
+          <button className="btn" disabled={busy || on || !st.used} onClick={() => control("start")} data-testid="t3-start">Start</button>
+          <button className="btn" disabled={busy || !on} onClick={() => control("stop")} data-testid="t3-stop">Stop</button>
+          <button className="btn" disabled={busy} onClick={() => act(read)} data-testid="t3-refresh">Refresh</button>
+        </div>
+        {!on && st.used > 0 && <div className="row">
+          <label className="field"><span>Type <b className="mono">PROGRAM {slot}</b> to erase</span><input data-confirm value={typed} onChange={(e) => setTyped(e.target.value)} /></label>
+          <button className="btn danger" disabled={busy || !typedOk(typed, `PROGRAM ${slot}`)} onClick={() => control("remove")} data-testid="t3-remove">Remove from Controller</button>
+        </div>}
+        <hr />
+        <button className="btn primary" disabled={!canSend} title={imported ? "This sheet documents the program; make an editable copy to load it" : ""} onClick={onSend} data-testid="t3-send-from-ctl">Send This Sheet to Controller…</button>
+        <p className="muted small">Send saves a revision if needed, shows the difference with what the controller holds, keeps a backup and loads it.</p>
       </>}
-      {plan && <div data-testid="t3-plan-result">
-        <div className="kv"><span>Controller</span><b>{plan.instance} · Program {plan.program}</b></div>
-        <div className="kv"><span>New / Existing</span><b>{plan.new_bytes} / {plan.existing_bytes} bytes</b></div>
-        <div className="kv"><span>Writes</span><b className="mono">{plan.writes.join(", ")}</b></div>
-        <div className="kv"><span>Work Variables</span><b className="mono">{plan.work_vars.join(", ") || "None"}</b></div>
-        <pre className="mono small">{plan.listing}</pre>
-        <label className="field"><span><input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} data-testid="t3-ack" /> I reviewed this program. Load it to the controller and leave it stopped.</span></label>
-        <button className="btn primary" disabled={!ack || busy} onClick={doApply} data-testid="t3-apply">Load Program</button>
-      </div>}
-      {loaded && <div className="row">
-        <button className="btn" disabled={busy || status === "running"} onClick={() => control("start")} data-testid="t3-start">Start</button>
-        <button className="btn" disabled={busy || status !== "running"} onClick={() => control("stop")} data-testid="t3-stop">Stop</button>
-        <button className="btn danger" disabled={busy || status === "running"} onClick={() => control("remove")} data-testid="t3-remove">Remove from Controller</button>
-      </div>}
-      {busy && <div className="muted">Working with the controller…</div>}
+      {busy && st && <div className="muted">Working with the controller…</div>}
     </Modal>
   );
 }

@@ -147,6 +147,7 @@ class SimController:
             point[tb.ON_OFF_OFFSET] = 1 if self.on[start] else 0
             if self.runtime_state and self.on[start]:
                 point[35] = (point[35] + 1) & 0xFF
+                point[34] = 4 + (point[35] % 3)  # real firmware: changes every scan (seen 4-6 on T3-BB and Tstat10)
                 self._tick(start)
             return ack(tb.header(7 + len(point), command, start, entity) + bytes(point))
         if command == 107:

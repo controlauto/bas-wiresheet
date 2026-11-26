@@ -93,6 +93,10 @@ def format_number(value: float) -> str:
     return "0" if text in ("-0", "") else text
 
 
+def rx_ref(name: str):
+    return re.compile(rf"(?<![A-Z0-9_.]){re.escape(name)}(?![A-Z0-9_])")
+
+
 class _Gen:
     def __init__(self, sheet: dict, guard: Guard) -> None:
         self.sheet, self.guard = sheet, guard
@@ -126,6 +130,12 @@ class _Gen:
         self.local_n = 0
         self.work_locals_used: list[str] = []
         self.local_names = {str((b.get("params") or {}).get("name", "")).upper() for b in self.blocks.values() if b.get("type") in ("cb_local_read", "cb_local_write")}
+        # in place: who reads each block output, which readers are already written, and which variable holds an expression
+        self.readers: dict[tuple[str, str], set[str]] = {}
+        for w in sheet.get("wires", []):
+            self.readers.setdefault((w["from"]["block"], w["from"]["port"]), set()).add(w["to"]["block"])
+        self.done: set[str] = set()
+        self.holder: dict[str, str] = {}
 
     def err(self, code: str, message: str, block: str | None = None, param: str | None = None) -> None:
         item: dict[str, Any] = {"severity": "error", "code": code, "message": message}
@@ -456,6 +466,61 @@ class _Gen:
             return w
         return None
 
+    def _is_bool(self, bid: str, port: str) -> bool:
+        b = self.blocks.get(bid) or {}
+        if b.get("type") in ("t3_read", "modbus_read", "cb_local_read", "constant"):
+            return (b.get("params") or {}).get("value_type") == "boolean"
+        for o in (macros.catalog().get(b.get("type")) or {}).get("outputs") or []:
+            if o.get("id") == port:
+                return o.get("type") == "boolean"
+        return False
+
+    def _pending(self, key: tuple[str, str]) -> bool:
+        """Does a block not written yet (outside the line being written) still read this output?"""
+        line = None
+        if self._node_stack:
+            line = (self.blocks[self._node_stack[0]].get("seq") or [None])[0]
+        for dst in self.readers.get(key, ()):
+            if dst in self.done or dst in self._node_stack or any(k[0] == dst for k in self.memo):
+                continue
+            d = self.blocks.get(dst) or {}
+            if line is not None and d.get("assign") and (d.get("seq") or [None])[0] == line:
+                continue  # another branch of the same program line (the branches exclude each other)
+            return True
+        return False
+
+    def assign(self, name: str, text: str) -> None:
+        """Emit an in-place assignment of name. Expressions already written that read name and are still needed by
+        later lines keep the value from before: they are stored first (in the variable that already holds them, else
+        in a work variable), as the original program evaluated them once."""
+        if self.inplace:
+            rx = re.compile(rf"(?<![A-Z0-9_.]){re.escape(name)}(?![A-Z0-9_])")
+            # shortest first: a stored part is then reused inside the longer expressions that contain it
+            for key in sorted(self.memo, key=lambda k: len(self.memo[k])):
+                expr = self.memo[key]
+                if not rx.search(expr) or not self._pending(key):
+                    continue
+                held = self.holder.get(expr)
+                if held and held != name:
+                    new = held
+                else:
+                    w = self.take_work(key[0])
+                    if self._is_bool(*key):
+                        self.emit(f"IF {expr} THEN {w} = 1 ELSE {w} = 0")
+                        new = f"( {w} > 0 )"
+                    else:
+                        self.emit(f"{w} = {expr}")
+                        new = w
+                self.memo[key] = new
+                if new != expr:
+                    text = text.replace(expr, new)  # this line reads the same values: use the stored copy too
+                for k2, e2 in self.memo.items():
+                    if k2 != key and expr in e2 and len(e2) > len(expr):
+                        self.memo[k2] = e2.replace(expr, new)
+            for expr in [e for e, h in self.holder.items() if h == name or rx.search(e)]:
+                del self.holder[expr]
+        self.emit(text)
+
     def assigned(self, name: str) -> None:
         """name was changed in place: forget stored expressions that read it (they hold the old value)."""
         rx = re.compile(rf"(?<![A-Z0-9_.]){re.escape(name)}(?![A-Z0-9_])")
@@ -480,7 +545,7 @@ class _Gen:
         if prev_src is not None:
             prev = self.output(*prev_src)  # the earlier assignments of this point come first
             if prev != name:
-                self.emit(f"{name} = {prev}")
+                self.assign(name, f"{name} = {prev}")
                 self.assigned(name)
         self.emit_node(bid, name, prev_src, [])
         self.assigned(name)
@@ -523,6 +588,7 @@ class _Gen:
             self._emit_node(bid, name, prev_src, conds)
         finally:
             self._node_stack.pop()
+            self.done.add(bid)
 
     def _emit_node(self, bid: str, name: str, prev_src, conds: list[str]) -> None:
         blk = self.blocks[bid]
@@ -541,15 +607,15 @@ class _Gen:
             if not conds and c in ("1", "0"):
                 v = va if c == "1" else vb
                 if v != name:
-                    self.emit(f"{name} = {v}")
+                    self.assign(name, f"{name} = {v}")
                 return
             if not conds:
                 if va == name:
-                    self.emit(f"IF ( NOT {self.atom(bid, c)} ) THEN {name} = {vb}")
+                    self.assign(name, f"IF ( NOT {self.atom(bid, c)} ) THEN {name} = {vb}")
                 elif vb == name:
-                    self.emit(f"IF {c} THEN {name} = {va}")
+                    self.assign(name, f"IF {c} THEN {name} = {va}")
                 else:
-                    self.emit(f"IF {c} THEN {name} = {va} ELSE {name} = {vb}")
+                    self.assign(name, f"IF {c} THEN {name} = {va} ELSE {name} = {vb}")
                 return
         for p in ports:
             here = conds + [c if p == "a" else f"( NOT {self.atom(bid, c)} )"]
@@ -563,7 +629,7 @@ class _Gen:
             cond = self.and_all(bid, here)
             if cond == "0":
                 continue  # never runs
-            self.emit(f"{name} = {v}" if cond == "1" else f"IF {cond} THEN {name} = {v}")
+            self.assign(name, f"{name} = {v}" if cond == "1" else f"IF {cond} THEN {name} = {v}")
         del prefix
 
     def and_all(self, bid: str, conds: list[str]) -> str:
@@ -711,10 +777,16 @@ class _Gen:
                         self.err("t3_number", str(e), b["id"], "scale")
             if source == name:
                 return  # already assigned in place
+            self.done.add(b["id"])
             if (b.get("params") or {}).get("value_type") == "boolean":
-                self.emit(f"IF {source} THEN {name} = 1 ELSE {name} = 0")
+                self.assign(name, f"IF {source} THEN {name} = 1 ELSE {name} = 0")
             else:
-                self.emit(f"{name} = {source}")
+                self.assign(name, f"{name} = {source}")
+                if self.inplace and not SIMPLE_RE.match(source):
+                    self.holder[source] = name  # name holds this expression until one of its points changes
+                    for key, expr in list(self.memo.items()):
+                        if expr == source and not rx_ref(name).search(source):
+                            self.memo[key] = name  # later lines read the variable instead of recalculating
             if self.inplace:
                 self.assigned(name)
 

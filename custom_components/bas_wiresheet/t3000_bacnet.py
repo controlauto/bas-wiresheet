@@ -373,8 +373,9 @@ def apply_upload(client: Client, plan: Plan, code: bytes, backup: bytes, token: 
 
 
 def stable_status(point: bytes) -> bytes:
-    """Status without the error byte, which the firmware updates while a program runs."""
-    return point[:35] + point[36:]
+    """Status without the bytes the firmware updates while a program runs: 34 (changes every scan, seen on T3-BB and
+    Tstat10) and 35 (error code)."""
+    return point[:34] + point[36:]
 
 
 @dataclass

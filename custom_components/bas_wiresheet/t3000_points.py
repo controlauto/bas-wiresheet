@@ -9,6 +9,7 @@ In auto the controller program owns the value, so a value is verified only when 
 """
 from __future__ import annotations
 
+import re
 import struct
 from typing import Any
 
@@ -194,3 +195,26 @@ def edit_point(client, expected_device: int, kind: str, index: int, changes: dic
     if bad:
         raise BacnetError(f"{kind}{index}: the controller did not keep {', '.join(bad)}")
     return {"ok": True, "changed": True, "before": decode(kind, before), "after": got}
+
+
+def read_values(client, names) -> dict[str, dict[str, Any]]:
+    """Current value, auto/manual, label and units of the named points (IN3, VAR12, ...): one range read per kind,
+    several records per request, as T3000 does. Read only."""
+    wanted: dict[str, list[int]] = {}
+    for name in dict.fromkeys(str(n).upper() for n in names):
+        m = re.match(r"^(IN|OUT|VAR)([1-9]\d*)$", name)
+        if m:
+            wanted.setdefault(m.group(1), []).append(int(m.group(2)))
+    out: dict[str, dict[str, Any]] = {}
+    for kind, idx in wanted.items():
+        cmd, size, top, _ = KINDS[kind]
+        idx = [n for n in idx if n <= top]
+        if not idx:
+            continue
+        lo, hi = min(idx), max(idx)
+        recs = read_range(client, cmd, lo - 1, hi - lo + 1, size, 10)
+        for n in idx:
+            d = decode(kind, recs[n - lo])
+            out[f"{kind}{n}"] = {"value": d["value"], "digital": d["digital_analog"] == "digital", "manual": d["auto_manual"] == "manual",
+                                 "label": d["label"], "units": d.get("units") or ""}
+    return out
