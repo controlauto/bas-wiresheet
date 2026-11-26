@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .t3000_bacnet import PRIVATE_LEN, BacnetError, UploadRefused, header
+from .t3000_bacnet import PRIVATE_LEN, BacnetError, UploadRefused, header, read_checked
 
 READ_CMD, SIZE = 98, 400
 PORT_MODE_OFFSET, PORT_BAUD_OFFSET = 38, 44
@@ -23,9 +23,8 @@ BAUD_RATES = [1200, 2400, 3600, 4800, 7200, 9600, 19200, 38400, 76800, 115200, 9
 
 
 def read_raw(client) -> bytes:
-    data = client._private(header(PRIVATE_LEN, READ_CMD, 0, SIZE))
-    if len(data) != PRIVATE_LEN + SIZE or data[2] != READ_CMD:
-        raise BacnetError("Unexpected reply reading the controller settings")
+    data = read_checked(client, header(PRIVATE_LEN, READ_CMD, 0, SIZE), lambda d: len(d) == PRIVATE_LEN + SIZE and d[2] == READ_CMD,
+                        "reading the controller settings")
     return data[PRIVATE_LEN:]
 
 

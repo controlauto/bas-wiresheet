@@ -25,9 +25,8 @@ POINT_TYPES = {1: "OUT", 2: "IN", 3: "VAR"}
 
 
 def _read(client, cmd: int, index: int, size: int) -> bytes:
-    data = client._private(tb.header(tb.PRIVATE_LEN, cmd, index, size))
-    if len(data) != tb.PRIVATE_LEN + size or data[2] != cmd or data[3] != index:
-        raise tb.BacnetError(f"Unexpected reply reading record {index + 1} of table {cmd}")
+    data = tb.read_checked(client, tb.header(tb.PRIVATE_LEN, cmd, index, size),
+                           lambda d: len(d) == tb.PRIVATE_LEN + size and d[2] == cmd and d[3] == index, f"reading record {index + 1} of table {cmd}")
     return data[tb.PRIVATE_LEN:]
 
 

@@ -39,6 +39,24 @@ def header(total: int, command: int, slot: int, entity: int) -> bytes:
     return HEADER.pack(total, command, slot, slot, entity)
 
 
+READ_ATTEMPTS = 3
+
+
+def read_checked(client, payload: bytes, ok, what: str) -> bytes:
+    """A private-transfer read whose reply is checked; a reply that does not match the request (another record, another
+    command, empty) is asked again. Seen on a Tstat10 over Wi-Fi during a Send: one stray reply aborted the whole
+    transfer. Reads have no effect on the controller, so asking again is safe."""
+    got = ""
+    for attempt in range(READ_ATTEMPTS):
+        data = client._private(payload)
+        if ok(data):
+            return data
+        got = f"{len(data)} bytes" + (f", command {data[2]}, record {data[3]}, entity {data[5] | data[6] << 8}" if len(data) >= PRIVATE_LEN else "")
+        if attempt + 1 < READ_ATTEMPTS:
+            time.sleep(max(getattr(client, "gap", 0.0), 0.3) * 2)
+    raise BacnetError(f"Unexpected reply {what} after {READ_ATTEMPTS} attempts (last: {got})")
+
+
 def read_range(client, command: int, start: int, count: int, size: int, group: int) -> list[bytes]:
     """Read count records of size bytes from index start, `group` records per request (as T3000 does).
 
@@ -47,10 +65,10 @@ def read_range(client, command: int, start: int, count: int, size: int, group: i
     i = start
     while i < start + count:
         end = min(i + group, start + count) - 1
-        data = client._private(HEADER.pack(PRIVATE_LEN, command, i, end, size))
         n = end - i + 1
-        if len(data) != PRIVATE_LEN + n * size or data[2] != command or data[3] != i or data[4] != end:
-            raise BacnetError(f"Unexpected reply reading records {i + 1}-{end + 1} of table {command}")
+        data = read_checked(client, HEADER.pack(PRIVATE_LEN, command, i, end, size),
+                            lambda d, i=i, end=end, n=n: len(d) == PRIVATE_LEN + n * size and d[2] == command and d[3] == i and d[4] == end,
+                            f"reading records {i + 1}-{end + 1} of table {command}")
         body = data[PRIVATE_LEN:]
         out.extend(body[k * size:(k + 1) * size] for k in range(n))
         i = end + 1
@@ -240,9 +258,9 @@ class Client:
         return oid & 0x3FFFFF
 
     def read_point(self, slot: int) -> bytes:
-        data = self._private(header(PRIVATE_LEN, READPROGRAM, slot, PROGRAM_POINT_SIZE))
-        if len(data) != PRIVATE_LEN + PROGRAM_POINT_SIZE or data[2] != READPROGRAM or data[3] != slot:
-            raise BacnetError("Unexpected program status reply")
+        data = read_checked(self, header(PRIVATE_LEN, READPROGRAM, slot, PROGRAM_POINT_SIZE),
+                            lambda d: len(d) == PRIVATE_LEN + PROGRAM_POINT_SIZE and d[2] == READPROGRAM and d[3] == slot,
+                            f"for the status of program {slot + 1}")
         return data[PRIVATE_LEN:]
 
     def write_point(self, slot: int, point: bytes) -> None:
@@ -256,9 +274,9 @@ class Client:
     def read_code(self, slot: int) -> bytes:
         out = bytearray()
         for packet in range(CODE_SIZE // PACKET):
-            data = self._private(header(PRIVATE_LEN, READPROGRAMCODE, slot, code_entity(packet)))
-            if len(data) != PRIVATE_LEN + PACKET or data[2] != READPROGRAMCODE or data[3] != slot or data[6] >> 1 != packet:
-                raise BacnetError(f"Unexpected program code reply for packet {packet}")
+            data = read_checked(self, header(PRIVATE_LEN, READPROGRAMCODE, slot, code_entity(packet)),
+                                lambda d, packet=packet: len(d) == PRIVATE_LEN + PACKET and d[2] == READPROGRAMCODE and d[3] == slot and d[6] >> 1 == packet,
+                                f"for program {slot + 1} code packet {packet}")
             out += data[PRIVATE_LEN:]
         return bytes(out)
 

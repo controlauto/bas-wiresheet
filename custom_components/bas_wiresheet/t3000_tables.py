@@ -17,7 +17,7 @@ import datetime as dt
 import struct
 from typing import Any
 
-from .t3000_bacnet import PRIVATE_LEN, BacnetError, UploadRefused, header
+from .t3000_bacnet import PRIVATE_LEN, BacnetError, UploadRefused, header, read_checked
 
 TABLES = {
     # name: (read command, size, count)
@@ -37,9 +37,8 @@ def read_table(client, name: str, index: int) -> bytes:
     if not 1 <= index <= count:
         raise UploadRefused(f"{name} {index} does not exist (1-{count})")
     i = index - 1
-    data = client._private(header(PRIVATE_LEN, cmd, i, size))
-    if len(data) != PRIVATE_LEN + size or data[2] != cmd or data[3] != i:
-        raise BacnetError(f"Unexpected reply reading {name} {index}")
+    data = read_checked(client, header(PRIVATE_LEN, cmd, i, size), lambda d: len(d) == PRIVATE_LEN + size and d[2] == cmd and d[3] == i,
+                        f"reading {name} {index}")
     return data[PRIVATE_LEN:]
 
 

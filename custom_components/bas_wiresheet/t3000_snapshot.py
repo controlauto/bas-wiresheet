@@ -23,9 +23,8 @@ RESTORABLE = ("program", "OUT", "IN", "VAR", "pid", "weekly", "annual")
 
 
 def _read_monitor(client, index: int) -> bytes:
-    data = client._private(tb.header(tb.PRIVATE_LEN, MONITOR_CMD, index, MONITOR_SIZE))
-    if len(data) != tb.PRIVATE_LEN + MONITOR_SIZE or data[2] != MONITOR_CMD:
-        raise tb.BacnetError(f"Unexpected reply reading monitor {index + 1}")
+    data = tb.read_checked(client, tb.header(tb.PRIVATE_LEN, MONITOR_CMD, index, MONITOR_SIZE),
+                           lambda d: len(d) == tb.PRIVATE_LEN + MONITOR_SIZE and d[2] == MONITOR_CMD, f"reading monitor {index + 1}")
     return data[tb.PRIVATE_LEN:]
 
 

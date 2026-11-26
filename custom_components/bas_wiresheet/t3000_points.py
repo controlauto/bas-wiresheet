@@ -13,7 +13,7 @@ import re
 import struct
 from typing import Any
 
-from .t3000_bacnet import PRIVATE_LEN, BacnetError, UploadRefused, header, read_range
+from .t3000_bacnet import PRIVATE_LEN, BacnetError, UploadRefused, header, read_checked, read_range
 
 KINDS = {
     # category: (read command, size, max index, description length)
@@ -160,9 +160,8 @@ def read_struct(client, kind: str, index: int) -> bytes:
     if not 1 <= index <= top:
         raise UploadRefused(f"{kind}{index} does not exist (1-{top})")
     i = index - 1
-    data = client._private(header(PRIVATE_LEN, cmd, i, size))
-    if len(data) != PRIVATE_LEN + size or data[2] != cmd or data[3] != i:
-        raise BacnetError(f"Unexpected reply reading {kind}{index}")
+    data = read_checked(client, header(PRIVATE_LEN, cmd, i, size), lambda d: len(d) == PRIVATE_LEN + size and d[2] == cmd and d[3] == i,
+                        f"reading {kind}{index}")
     return data[PRIVATE_LEN:]
 
 
