@@ -13,7 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
 
-from . import t3000_alarms, t3000_snapshot
+from . import t3000_alarms, t3000_bacnet, t3000_snapshot
 
 _LOGGER = logging.getLogger(__name__)
 SNAP_STORE_KEY = "bas_wiresheet.snapshots"
@@ -144,9 +144,14 @@ class AlarmWatch:
             self.add_entities([self.sensors[instance]])
         return self.sensors.get(instance)
 
-    async def refresh(self, instance: int, name: str) -> list[dict] | None:
+    async def refresh(self, instance: int, name: str, background: bool = True) -> list[dict] | None:
         try:
-            alarms = await self._run(instance, lambda c: t3000_alarms.read_alarms(c, instance))
+            if background:
+                alarms = await self._run(instance, lambda c: t3000_alarms.read_alarms(c, instance))
+            else:
+                alarms = await self._run(instance, lambda c: t3000_alarms.read_alarms(c, instance), background=False)
+        except t3000_bacnet.ControllerBusy:
+            return (self.latest.get(instance) or {}).get("alarms")  # busy with other work: next poll; the sensor keeps its value
         except Exception as err:  # noqa: BLE001 - a controller that does not answer must not stop the others
             self.latest[instance] = {"at": time.time(), "error": str(err), "alarms": None}
             sensor = self._sensor(instance, name)

@@ -11,6 +11,7 @@ import {
 } from "./model.js";
 import { Faceplate, PANEL_TYPES, TerminalPanel } from "./Faceplate.jsx";
 import { CONFIRM, typedOk } from "./confirm.js";
+import { pollLoop } from "./poll.js";
 import SCENARIOS from "./scenarios.js";
 import Explorer from "./Explorer.jsx";
 import { History, TrendChart, buildDocument, SheetRuntime, TemplateDialog } from "./Extras.jsx";
@@ -613,9 +614,9 @@ function Editor({ hass, boot, initialSheet }) {
         if (!stop) { setT3Points(r.points); setT3Device(r.device); }
       } catch { if (!stop) setT3Points([]); }
     };
-    load();
-    const h = mode === MODE.LIVE ? setInterval(load, 5000) : null;
-    return () => { stop = true; if (h) clearInterval(h); };
+    if (mode !== MODE.LIVE) { load(); return () => { stop = true; }; }
+    const cancel = pollLoop(load, 5000);
+    return () => { stop = true; cancel(); };
   }, [t3Instance, mode, ws]);
   // Controller Outputs faceplate: port modes from the controller settings (read once per controller)
   const hasOutPanel = !!(sheet && sheet.blocks.some((b) => b.type === "t3_panel_out"));
@@ -636,11 +637,17 @@ function Editor({ hass, boot, initialSheet }) {
   useEffect(() => {
     if (!t3Instance || !hasPanel) { setT3Table(null); return undefined; }
     let stop = false;
-    const load = () => Promise.all(["IN", "OUT"].map((k) => ws({ type: "bas_wiresheet/t3_point_table", instance: t3Instance, category: k }).then((r) => r.points).catch(() => null)))
-      .then(([IN, OUT]) => { if (!stop && (IN || OUT)) setT3Table({ IN: IN || [], OUT: OUT || [], at: Date.now() }); });
-    load();
-    const h = mode === MODE.LIVE ? setInterval(load, 15000) : null;
-    return () => { stop = true; if (h) clearInterval(h); };
+    // labels, ranges and switches change rarely: read on open, then every 60 s in Live Monitoring, one table at a time
+    const load = async () => {
+      const get = async (k, background) => { try { return (await ws({ type: "bas_wiresheet/t3_point_table", instance: t3Instance, category: k, background })).points; } catch { return null; } };
+      const bg = mode === MODE.LIVE;
+      const IN = await get("IN", bg);
+      const OUT = await get("OUT", bg);
+      if (!stop && (IN || OUT)) setT3Table((old) => ({ IN: IN || (old && old.IN) || [], OUT: OUT || (old && old.OUT) || [], at: Date.now() }));
+    };
+    if (mode !== MODE.LIVE) { load(); return () => { stop = true; }; }
+    const cancel = pollLoop(load, 60000);
+    return () => { stop = true; cancel(); };
   }, [t3Instance, hasPanel, mode, tableTick, ws]);
   // Live Monitoring of T3000 sheets: timers and locals from the running program (read only, every 10 s)
   const t3Slot = meta && meta.mode === "t3000" && meta.t3000 ? meta.t3000.program_slot : null;
@@ -650,11 +657,11 @@ function Editor({ hass, boot, initialSheet }) {
   useEffect(() => {
     if (mode !== MODE.LIVE || !t3Instance || !t3Slot) { setT3Ctl(null); return undefined; }
     let stop = false;
-    const load = () => ws({ type: "bas_wiresheet/t3_program_state", instance: t3Instance, slot: t3Slot })
-      .then((r) => { if (!stop) setT3Ctl(r); }).catch((e) => { if (!stop) setT3Ctl({ error: e.message }); });
-    load();
-    const h = setInterval(load, 10000);
-    return () => { stop = true; clearInterval(h); };
+    const load = () => ws({ type: "bas_wiresheet/t3_program_state", instance: t3Instance, slot: t3Slot, background: true })
+      .then((r) => { if (!stop) setT3Ctl(r); })
+      .catch((e) => { if (!stop && !/busy/i.test(e.message)) setT3Ctl({ error: e.message }); }); // busy: keep the last reading
+    const cancel = pollLoop(load, 10000);
+    return () => { stop = true; cancel(); };
   }, [mode, t3Instance, t3Slot, ws]);
   useEffect(() => {
     if (mode !== MODE.LIVE || !sheet || !meta || meta.mode !== "t3000" || t3Imported) { setT3Build(null); return; }
@@ -676,18 +683,22 @@ function Editor({ hass, boot, initialSheet }) {
     const missing = sheetPoints.filter((p) => !have.has(p));
     if (!missing.length) return undefined;
     let stop = false;
-    const load = () => ws({ type: "bas_wiresheet/t3_point_values", instance: t3Instance, points: missing.slice(0, 320) }).then((r) => {
+    const load = () => ws({ type: "bas_wiresheet/t3_point_values", instance: t3Instance, points: missing.slice(0, 320), background: true }).then((r) => {
       if (stop) return;
       setCtlRows(Object.entries(r.values).map(([name, v]) => {
         const m = /^(IN|OUT|VAR)(\d+)$/.exec(name);
         return { category: m[1], index: Number(m[2]), value: v.digital ? (v.value ? "on" : "off") : v.value, units: v.digital ? "" : v.units, label: v.label,
-          auto_manual: v.manual ? "Manual" : "Auto", freshness: "Fresh", freshness_reason: "Read from the controller", entity_id: null,
+          auto_manual: v.manual ? "Manual" : "Auto", entity_id: null,
+          ...(Date.now() / 1000 - r.at > 60 ? { freshness: "Stale", freshness_reason: `Last read from the controller ${Math.round(Date.now() / 1000 - r.at)} s ago` }
+            : { freshness: "Fresh", freshness_reason: "Read from the controller" }),
           last_reported: r.at * 1000, last_changed: null, source: "controller" };
       }));
-    }).catch((e) => { if (!stop) setCtlRows([]); notify(`Live values from the controller: ${e.message}`, "bad"); });
-    load();
-    const h = setInterval(load, 5000);
-    return () => { stop = true; clearInterval(h); };
+    }).catch((e) => {
+      if (stop || /busy/i.test(e.message)) return; // busy with other work: keep the last values
+      setCtlRows([]); notify(`Live values from the controller: ${e.message}`, "bad");
+    });
+    const cancel = pollLoop(load, 5000);
+    return () => { stop = true; cancel(); };
   }, [mode, t3Instance, t3Points && t3Points.length, sheetPoints.join(","), ws]); // eslint-disable-line
   const livePoints = useMemo(() => (t3Points ? [...t3Points, ...(ctlRows || [])] : null), [t3Points, ctlRows]);
   const t3Live = useMemo(() => (mode === MODE.LIVE && meta && meta.mode === "t3000" && livePoints && sheet

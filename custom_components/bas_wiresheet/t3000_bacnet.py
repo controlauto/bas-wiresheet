@@ -31,6 +31,10 @@ class BacnetError(Exception):
     """Transport or protocol failure."""
 
 
+class ControllerBusy(Exception):
+    """A background read found the controller busy with other work and was not queued."""
+
+
 class UploadRefused(Exception):
     """A safety check stopped the upload before anything was written."""
 
@@ -40,6 +44,74 @@ def header(total: int, command: int, slot: int, entity: int) -> bytes:
 
 
 READ_ATTEMPTS = 3
+WRITE_GAP = 0.3
+
+
+class LinkProfile:
+    """How fast one controller can be asked, learned from its own replies (the same rules for every controller).
+
+    Measured on site (read-only, 2026-11-26): a T3-BB answers every request even 0.05 s apart; a Tstat10 over Wi-Fi
+    loses about 7-15 % of requests whatever the pause (Wi-Fi, Modbus polling by other clients) and stops answering
+    with no pause at all. So random losses do not lengthen the pause (that only made every read slower); only heavy
+    loss (over LOSS_HIGH of the recent requests, a sign the controller is overrun) does, and a calm run shortens it
+    again. The reply timeout follows the controller's real reply times, so a lost request is asked again soon.
+    Writes always keep at least WRITE_GAP (Client.write_gap)."""
+
+    GAP_MIN, GAP_START, GAP_MAX, GAP_UP, GAP_DOWN = 0.1, 0.15, 1.0, 0.15, 0.05
+    LOSS_HIGH, LOSS_LOW, WINDOW, CALM = 0.40, 0.10, 60, 30
+    TIMEOUT_MIN, TIMEOUT_MAX, SAMPLES = 1.0, 3.0, 200
+    RETRIES = 4
+
+    def __init__(self) -> None:
+        self.gap = self.GAP_START
+        self.replies: list[float] = []
+        self.recent: list[bool] = []  # True = lost, newest last
+        self.calm = 0
+        self.lost = self.asked = 0
+
+    @property
+    def timeout(self) -> float:
+        if len(self.replies) < 20:
+            return self.TIMEOUT_MAX
+        r = sorted(self.replies)
+        p95 = r[int(len(r) * 0.95) - 1]
+        return round(min(self.TIMEOUT_MAX, max(self.TIMEOUT_MIN, 4 * p95, 2 * r[-1])), 2)
+
+    @property
+    def loss_rate(self) -> float:
+        return sum(self.recent) / len(self.recent) if self.recent else 0.0
+
+    def client_kwargs(self) -> dict:
+        return {"timeout": self.timeout, "retries": self.RETRIES, "gap": self.gap}
+
+    def learn(self, client) -> None:
+        answered, lost = len(client.reply_s), client.lost
+        self.replies = (self.replies + list(client.reply_s))[-self.SAMPLES:]
+        self.recent = (self.recent + [False] * answered + [True] * lost)[-self.WINDOW:]
+        self.asked += answered + lost
+        self.lost += lost
+        overrun_now = lost >= 3 and lost > self.LOSS_HIGH * (answered + lost)  # this operation alone lost most requests
+        if getattr(client, "gap", self.gap) > self.gap:
+            self.gap = round(min(self.GAP_MAX, client.gap), 2)  # the operation already slowed down: keep that pace
+            self.calm = 0
+            self.recent = self.recent[-5:]
+            return
+        if overrun_now or (len(self.recent) >= 10 and self.loss_rate > self.LOSS_HIGH):
+            self.gap = round(min(self.GAP_MAX, self.gap + self.GAP_UP), 2)
+            self.calm = 0
+            self.recent = self.recent[-5:]  # judge the new pace on its own replies
+            return
+        if self.loss_rate <= self.LOSS_LOW:
+            self.calm += answered
+            while self.calm >= self.CALM and self.gap > self.GAP_MIN:
+                self.gap = round(max(self.GAP_MIN, self.gap - self.GAP_DOWN), 2)
+                self.calm -= self.CALM
+        else:
+            self.calm = 0
+
+    def as_dict(self) -> dict:
+        return {"gap_s": self.gap, "timeout_s": self.timeout, "asked": self.asked, "lost": self.lost,
+                "loss_pct": round(100 * self.lost / self.asked, 1) if self.asked else 0.0, "recent_loss_pct": round(100 * self.loss_rate)}
 
 
 def read_checked(client, payload: bytes, ok, what: str) -> bytes:
@@ -191,6 +263,9 @@ class Client:
         self.dnet, self.dadr = dnet, dadr
         self.timeout, self.retries, self.gap = timeout, retries, gap
         self.invoke = 0
+        self.reply_s: list[float] = []  # time to each reply (for LinkProfile)
+        self.lost = 0                   # requests that got no reply in time
+        self.write_gap = max(gap, WRITE_GAP)  # writes keep the pace proven on site
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("0.0.0.0", 0))
         self.sock.settimeout(timeout)
@@ -211,6 +286,7 @@ class Client:
                 time.sleep(self.gap)
             self.invoke = (self.invoke + 1) & 0xFF
             invoke = self.invoke
+            sent = time.monotonic()
             self.sock.sendto(bvll(bytes([0x00, 0x05, invoke, service]) + params, True, self.dnet, self.dadr), self.addr)
             try:
                 while True:
@@ -221,6 +297,8 @@ class Client:
                     kind = apdu[0] >> 4
                     if kind in (2, 3, 5, 6, 7) and apdu[1] != invoke:
                         continue
+                    if kind in (2, 3, 5, 6, 7):
+                        self.reply_s.append(time.monotonic() - sent)
                     if kind == 2 and apdu[2] == service:
                         return None
                     if kind == 3:
@@ -237,6 +315,12 @@ class Client:
                         raise BacnetError(f"BACnet abort, reason {apdu[2]}")
             except socket.timeout:
                 last = "timeout"
+                self.lost += 1
+                asked = len(self.reply_s) + self.lost
+                if self.lost >= 3 and self.lost > LinkProfile.LOSS_HIGH * asked and self.gap < LinkProfile.GAP_MAX:
+                    # most requests of this operation get lost: the controller is overrun, slow down now
+                    self.gap = round(min(LinkProfile.GAP_MAX, self.gap + LinkProfile.GAP_UP), 2)
+                    self.write_gap = max(self.write_gap, self.gap)
         via = f" network {self.dnet} MAC {self.dadr.hex()}" if self.dnet is not None else ""
         raise BacnetError(f"No reply from {self.addr[0]}:{self.addr[1]}{via} ({last})")
 
@@ -246,6 +330,8 @@ class Client:
 
     def _private_write(self, payload: bytes) -> None:
         """Any acknowledgement is accepted (real firmware returns a non-octet result); callers verify by reading back."""
+        if self.write_gap > self.gap:
+            time.sleep(self.write_gap - self.gap)
         self._transact(SERVICE_PRIVATE_TRANSFER, private_params(payload))
 
     def identify(self) -> int:

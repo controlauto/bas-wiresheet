@@ -496,6 +496,9 @@ export default function Explorer({ hass, role, onOpenSheet }) {
                 {hbAge === null ? "No Poll Heartbeat" : `Last Poll ${fmtAge(hbAge)} ago`}
               </span>
               <span className="muted small">Poll every {dev.entry.polling_interval || "?"} s · Stale after {dev.stale_after_s} s</span></>}
+              {dev.link && <span className={`chip ${dev.link.loss_pct > 10 ? "bad" : dev.link.loss_pct > 2 ? "unk" : "ok"}`} data-testid="t3-link"
+                title="Learned from this controller's replies: pause between requests and reply timeout. Losses raise the pause; a long run without losses lowers it.">
+                Link · {dev.link.gap_s} s between requests · timeout {dev.link.timeout_s} s · lost {dev.link.lost}/{dev.link.asked} ({dev.link.loss_pct} %)</span>}
             </>
           ) : <div className="xp-title muted">Select a device</div>}
         </div>

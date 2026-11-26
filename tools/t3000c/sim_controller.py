@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import socket
+import time
 import struct
 import threading
 from pathlib import Path
@@ -33,6 +34,11 @@ class SimController:
         self.fail_write_packet: int | None = None   # reject this packet once
         self.corrupt_write_once = False             # store one wrong byte once
         self.runtime_state = False
+        # Tstat10 over Wi-Fi: requests closer than min_gap_s to the previous one, and every drop_every-th request, get no reply
+        self.min_gap_s = 0.0
+        self.drop_every = 0
+        self.requests = 0
+        self._last_rx = 0.0
         # point tables: OUT (cmd 1, 45 bytes), IN (cmd 2, 46 bytes), VAR (cmd 3, 39 bytes)
         self.tables = {1: [bytearray(45) for _ in range(64)], 2: [bytearray(46) for _ in range(64)], 3: [bytearray(39) for _ in range(128)],
                        4: [bytearray(28) for _ in range(16)], 5: [bytearray(42) for _ in range(8)], 6: [bytearray(33) for _ in range(4)],
@@ -65,6 +71,10 @@ class SimController:
             try:
                 frame, addr = self.sock.recvfrom(1600)
             except socket.timeout:
+                continue
+            now, self.requests = time.monotonic(), self.requests + 1
+            too_soon, self._last_rx = now - self._last_rx < self.min_gap_s, now
+            if too_soon or (self.drop_every and self.requests % self.drop_every == 0):
                 continue
             ctrl = frame[5] if len(frame) > 5 else 0
             dest = None

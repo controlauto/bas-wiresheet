@@ -219,8 +219,9 @@ async def _async_setup_core(hass: HomeAssistant, conf: dict, config: ConfigType)
                 out.append(d)
         return out
 
-    async def _alarm_run(instance: int, fn):
-        return await _t3_run(hass, instance, _t3_require(hass, instance), fn)
+    async def _alarm_run(instance: int, fn, background: bool = True):
+        # the periodic poll is skipped while the controller is busy; Read Alarms in the panel waits its turn
+        return await _t3_run(hass, instance, _t3_require(hass, instance), fn, background=background)
 
     alarm_watch = AlarmWatch(hass, _alarm_devices, _alarm_run, repo.add_audit, conf.get("t3000", {}).get("alarm_poll_s", 60))
     data["alarm_watch"] = alarm_watch
@@ -533,8 +534,11 @@ def ws_validate(hass, connection, msg):
 def ws_t3_devices(hass, connection, msg):
     conf = hass.data[DOMAIN]["conf"].get("t3000", {})
     devices = t3000.list_devices(hass, conf)
+    links = hass.data[DOMAIN].get("t3_links", {})
     for d in devices:
         d["programs"] = _t3_caps(_t3_effective(hass, d["instance"]))
+        if d["instance"] in links:
+            d["link"] = links[d["instance"]].as_dict()  # learned pace, reply timeout and losses since start
     connection.send_result(msg["id"], {"devices": devices, "models": {k: v["source"] for k, v in t3000.MODEL_PROFILES.items()},
                                        "read_only": True})
 
@@ -885,7 +889,7 @@ async def ws_t3_point_config_write(hass, connection, msg):
 
 
 @websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_point_table", vol.Required("instance"): int,
-                                  vol.Required("category"): vol.In(["IN", "OUT", "VAR"])})
+                                  vol.Required("category"): vol.In(["IN", "OUT", "VAR"]), vol.Optional("background", default=False): bool})
 @websocket_api.async_response
 async def ws_t3_point_table(hass, connection, msg):
     """Read only: every IN, OUT or VAR of a controller straight from its point table (no Home Assistant entity needed)."""
@@ -904,9 +908,17 @@ async def ws_t3_point_table(hass, connection, msg):
             rows.append({"category": kind, "index": i, **d})
         return rows
 
+    bg = hass.data[DOMAIN].setdefault("t3_bg_cache", {})
+    stale = False
     try:
         cfg = _t3_require(hass, instance)
-        rows = await _t3_run(hass, instance, cfg, read)
+        rows = await _t3_run(hass, instance, cfg, read, background=msg["background"], share=("table", kind))
+        bg[("table", instance, kind)] = copy.deepcopy(rows)
+    except T3Busy as err:
+        if ("table", instance, kind) not in bg:
+            connection.send_error(msg["id"], "busy", str(err))
+            return
+        rows, stale = copy.deepcopy(bg[("table", instance, kind)]), True
     except (*T3_ERRORS, IndexError, struct.error) as err:
         connection.send_error(msg["id"], "t3000", str(err))
         return
@@ -914,7 +926,7 @@ async def ws_t3_point_table(hass, connection, msg):
         name = f"{kind}{r['index']}"
         r["protection"], r["protection_reason"] = t3000_policy.protection(devcfg, kind, r["index"], f"{name} {r['label']} {r['description']} {texts.get(name, '')}",
                                                                           bool(t3conf.get("unlock_protected_points")))
-    connection.send_result(msg["id"], {"points": rows, "access": (_t3_effective(hass, instance) or {}).get("access")})
+    connection.send_result(msg["id"], {"points": rows, "access": (_t3_effective(hass, instance) or {}).get("access"), "stale": stale})
 
 
 @websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_settings", vol.Required("instance"): int})
@@ -1159,7 +1171,7 @@ async def ws_t3_alarms(hass, connection, msg):
         connection.send_error(msg["id"], "t3000", str(err))
         return
     name = next((d["name"] for d in t3000.list_devices(hass, hass.data[DOMAIN]["conf"].get("t3000", {})) if d["instance"] == instance), str(instance))
-    alarms = await watch.refresh(instance, name)
+    alarms = await watch.refresh(instance, name, background=False)
     latest = watch.latest.get(instance, {})
     if alarms is None:
         connection.send_error(msg["id"], "t3000", latest.get("error") or "No reply")
@@ -1208,7 +1220,8 @@ async def ws_t3_monitors(hass, connection, msg):
 
 
 @websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_point_values", vol.Required("instance"): int,
-                                  vol.Required("points"): vol.All([vol.All(str, vol.Upper, vol.Match(r"^(IN|OUT|VAR)[1-9]\d{0,2}$"))], vol.Length(max=320))})
+                                  vol.Required("points"): vol.All([vol.All(str, vol.Upper, vol.Match(r"^(IN|OUT|VAR)[1-9]\d{0,2}$"))], vol.Length(max=320)),
+                                  vol.Optional("background", default=False): bool})
 @websocket_api.async_response
 async def ws_t3_point_values(hass, connection, msg):
     """Read only: current value, auto/manual and label of the listed points, straight from the controller."""
@@ -1219,9 +1232,18 @@ async def ws_t3_point_values(hass, connection, msg):
             raise t3000_bacnet.UploadRefused("Wrong controller at this address")
         return t3000_points.read_values(client, msg["points"])
 
+    bg = hass.data[DOMAIN].setdefault("t3_bg_cache", {})
+    key = ("values", instance, tuple(sorted(set(msg["points"]))))
     try:
         cfg = _t3_require(hass, instance)
-        values = await _t3_run(hass, instance, cfg, read)
+        values = await _t3_run(hass, instance, cfg, read, background=msg["background"], share=key[1:])
+        bg[key] = (values, time.time())
+    except T3Busy as err:
+        if key not in bg:
+            connection.send_error(msg["id"], "busy", str(err))
+            return
+        connection.send_result(msg["id"], {"values": bg[key][0], "at": bg[key][1], "stale": True})
+        return
     except (*T3_ERRORS, ValueError) as err:
         connection.send_error(msg["id"], "t3000", str(err))
         return
@@ -1431,31 +1453,70 @@ def _t3_address(hass, instance: int, cfg: dict) -> tuple[str, int, int | None, b
         raise T3AccessError(str(err)) from err
 
 
-async def _t3_run(hass, instance: int, cfg: dict, fn):
-    host, port, dnet, dadr = _t3_address(hass, instance, cfg)
-    locks = hass.data[DOMAIN].setdefault("t3_locks", {})
-    lock = locks.setdefault(instance, asyncio.Lock())
+T3Busy = t3000_bacnet.ControllerBusy
 
-    # Tstat10-class controllers answer slowly (seen on a Tstat10 over Wi-Fi): wider gaps, more patience
-    slow = (cfg.get("model") or "") == "TSTAT10"
+
+async def _t3_run(hass, instance: int, cfg: dict, fn, *, background: bool = False, share: Any = None):
+    """Run fn(client) with the controller to itself (one request at a time per controller).
+
+    Work the operator asked for goes first: background reads (Live Monitoring polls, the alarm watch) are not queued
+    behind it or behind each other; when the controller is busy, or someone is waiting for it, they raise T3Busy and the
+    caller shows the last values. share: a key; callers asking the same read at the same time get one read."""
+    host, port, dnet, dadr = _t3_address(hass, instance, cfg)
+    data = hass.data[DOMAIN]
+    lock = data.setdefault("t3_locks", {}).setdefault(instance, asyncio.Lock())
+    waiting = data.setdefault("t3_waiting", {})
+    flights = data.setdefault("t3_flights", {})
+
+    # pace and reply timeout learned from this controller's own replies (same rules for every controller)
+    profile = data.setdefault("t3_links", {}).setdefault(instance, t3000_bacnet.LinkProfile())
 
     def job():
-        with t3000_bacnet.Client(host, port, timeout=4.0 if slow else 3.0, retries=4 if slow else 3, gap=0.45 if slow else 0.3,
-                                 dnet=dnet, dadr=dadr) as client:
-            return fn(client)
+        with t3000_bacnet.Client(host, port, dnet=dnet, dadr=dadr, **profile.client_kwargs()) as client:
+            try:
+                return fn(client)
+            finally:
+                profile.learn(client)
 
-    async with lock:
-        return await hass.async_add_executor_job(job)
+    if share is not None and (instance, share) in flights:
+        return await asyncio.shield(flights[(instance, share)])
+
+    async def locked():
+        if background:
+            if lock.locked() or waiting.get(instance):
+                raise T3Busy("The controller is busy with another request")
+            async with lock:
+                return await hass.async_add_executor_job(job)
+        waiting[instance] = waiting.get(instance, 0) + 1
+        counted = True
+        try:
+            async with lock:
+                waiting[instance] -= 1
+                counted = False
+                return await hass.async_add_executor_job(job)
+        finally:
+            if counted:
+                waiting[instance] -= 1
+
+    if share is None:
+        return await locked()
+    task = hass.async_create_task(locked())
+    flights[(instance, share)] = task
+    try:
+        return await asyncio.shield(task)
+    finally:
+        if flights.get((instance, share)) is task and task.done():
+            flights.pop((instance, share), None)
 
 
-T3_ERRORS = (T3AccessError, t3000_bacnet.BacnetError, t3000_bacnet.UploadRefused, t3000_toolchain.ToolchainError, OSError)
+T3_ERRORS = (T3AccessError, T3Busy, t3000_bacnet.BacnetError, t3000_bacnet.UploadRefused, t3000_toolchain.ToolchainError, OSError)
 
 
 PROGRAM_STATE_TTL_S = 10.0
 
 
 @websocket_api.websocket_command({vol.Required("type"): "bas_wiresheet/t3_program_state", vol.Required("instance"): int,
-                                  vol.Required("slot"): vol.All(int, vol.Range(min=1, max=16))})
+                                  vol.Required("slot"): vol.All(int, vol.Range(min=1, max=16)), vol.Optional("background", default=False): bool})
 @websocket_api.async_response
 async def ws_t3_program_state(hass, connection, msg):
     """Read only. Timer and local-variable state of one program, for Live Monitoring; at most one read per 10 s."""
@@ -1477,7 +1538,13 @@ async def ws_t3_program_state(hass, connection, msg):
 
     try:
         cfg = _t3_require(hass, instance)
-        result = await _t3_run(hass, instance, cfg, read)
+        result = await _t3_run(hass, instance, cfg, read, background=msg["background"], share=("state", slot))
+    except T3Busy as err:
+        if hit:
+            connection.send_result(msg["id"], hit)  # the last reading (read_at tells its age)
+            return
+        connection.send_error(msg["id"], "busy", str(err))
+        return
     except (*T3_ERRORS, IndexError, struct.error, t3000_import.Unsupported) as err:
         connection.send_error(msg["id"], "t3000", str(err))
         return
