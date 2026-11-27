@@ -1,6 +1,9 @@
 """One status sensor per monitoring sheet that runs inside Home Assistant (recorded in history)."""
 from __future__ import annotations
 
+import math
+
+from homeassistant.util import slugify
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.core import HomeAssistant
 
@@ -46,3 +49,31 @@ class SheetStatusSensor(SensorEntity):
         self._attr_available = False
         if self.hass is not None:
             self.async_write_ha_state()
+
+
+class DisplayValueSensor(SensorEntity):
+    """A numeric display explicitly published by the HA sheet runner."""
+
+    _attr_should_poll = False
+    _attr_available = False
+    _attr_native_value = None
+
+    def __init__(self, sheet_id: str, block_id: str, name: str) -> None:
+        self._attr_unique_id = f"bas_wiresheet_display:{sheet_id}:{block_id}"
+        self._attr_name = name
+        self.entity_id = f"sensor.{slugify(name) or 'wire_sheet_display'}"
+        self._attr_extra_state_attributes = {"sheet_id": sheet_id, "block_id": block_id}
+
+    def update_display(self, name: str, unit: str | None, signal: dict) -> None:
+        value = signal.get("v")
+        available = signal.get("q") == "good" and type(value) in (int, float) and math.isfinite(value)
+        value = value if available else None
+        state = (name, unit, available, value)
+        if state == (self.name, self.native_unit_of_measurement, self.available, self.native_value):
+            return
+        self._attr_name, self._attr_native_unit_of_measurement, self._attr_available, self._attr_native_value = state
+        if self.hass is not None:
+            self.async_write_ha_state()
+
+    def set_stopped(self) -> None:
+        self.update_display(self.name, self.native_unit_of_measurement, {})
