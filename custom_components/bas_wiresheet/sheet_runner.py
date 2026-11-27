@@ -70,6 +70,7 @@ class SheetRunner:
         self.audit = audit
         self.sheets: dict[str, RunningSheet] = {}
         self.entities: dict[str, Any] = {}
+        self.display_entities: dict[str, dict[str, Any]] = {}
         self.add_entities: Callable | None = None
         self._store = Store(hass, 1, "bas_wiresheet.runtime_state")
         self._saved: dict[str, Any] = {}
@@ -97,13 +98,16 @@ class SheetRunner:
 
     async def stop(self, sheet_id: str) -> None:
         run = self.sheets.pop(sheet_id, None)
+        for entity in self.display_entities.get(sheet_id, {}).values():
+            entity.set_stopped()
         if run:
             self._saved[sheet_id] = {"revision": run.rev, "at": time.time() * 1000, "state": run.rt.export_state()}
-            await self._store.async_save(self._saved)
         ent = self.entities.get(sheet_id)
         if ent:
             ent.set_stopped()
         self._clear_alert(sheet_id)
+        if run:
+            await self._store.async_save(self._saved)
 
     def status(self) -> dict:
         return {sid: {"revision": r.rev, "started_at": r.started_at, "started_by": r.started_by, "status": r.status, "points": r.per,
@@ -117,6 +121,29 @@ class SheetRunner:
             self.add_entities([ent])
         elif ent is not None:
             ent.set_name(name)
+
+    def _publish_displays(self, sid: str, run: RunningSheet, displays: dict) -> None:
+        from .sensor import DisplayValueSensor
+
+        if self.add_entities is None:
+            return
+        entities = self.display_entities.setdefault(sid, {})
+        published = set()
+        for bid, display in displays.items():
+            params = run.rt.by_id[bid].get("params") or {}
+            if params.get("ha_publish") != "Numeric sensor":
+                continue
+            published.add(bid)
+            name = f"{run.sheet.get('name') or sid} {display['label']}"
+            signal = display["value"] or {}
+            unit = params.get("ha_unit") or signal.get("unit")
+            entity = entities.get(bid)
+            if entity is None:
+                entity = entities[bid] = DisplayValueSensor(sid, bid, name)
+                self.add_entities([entity])
+            entity.update_display(name, unit, signal)
+        for bid in entities.keys() - published:
+            entities[bid].set_stopped()
 
     async def _tick(self, _now=None) -> None:
         for sid, run in list(self.sheets.items()):
@@ -137,7 +164,10 @@ class SheetRunner:
             st = self.hass.states.get(eid)
             if st is not None:
                 run.rt.ingest(eid, st.state, dict(st.attributes), st.last_reported.timestamp() * 1000, st.last_changed.timestamp() * 1000, now)
+            elif eid in run.rt.ctx["samples"]:
+                del run.rt.ctx["samples"][eid]
         snap = run.rt.tick(now)
+        self._publish_displays(sid, run, snap["displays"])
         run.status, run.per = sheet_status(snap)
         ent = self.entities.get(sid)
         if ent:

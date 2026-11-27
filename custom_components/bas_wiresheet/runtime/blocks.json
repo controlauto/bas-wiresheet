@@ -432,6 +432,21 @@
           "kind": "string",
           "required": true,
           "default": "Status"
+        },
+        {
+          "id": "ha_publish",
+          "label": "Publish to Home Assistant",
+          "kind": "enum",
+          "options": ["Off", "Numeric sensor"],
+          "default": "Off",
+          "help": "Publishes the display value while this monitoring sheet runs in Home Assistant."
+        },
+        {
+          "id": "ha_unit",
+          "label": "Published sensor unit",
+          "kind": "string",
+          "default": "",
+          "help": "Leave blank to use the signal unit. Use % for valve demand."
         }
       ]
     },
